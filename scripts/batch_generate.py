@@ -166,6 +166,124 @@ body { background: #737373; }
   max-height: 300px;
   object-fit: contain;
 }
+
+/* Grey-square caption for example images (no red square, no highlight) */
+.poster.auto-doc .caption-line {
+  position: relative;
+  margin: 0;
+  padding-left: 25px;
+  color: #555;
+  font-size: 17px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+.poster.auto-doc .caption-line::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  background: #d8d8d8;
+}
+.poster.auto-doc .text-block .caption-line { margin-top: 14px; }
+.poster.auto-doc .text-block .image-holder { margin-top: 10px; }
+
+/* Half-page-width images (used in 图文详情) */
+.poster.auto-doc .half-image .doc-image {
+  width: 100%;
+  max-width: 600px;
+  height: auto;
+  object-fit: contain;
+}
+
+/* Conversion-metric green emphasis bar */
+.poster.auto-doc .metric-emphasis {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 14px 24px;
+  border: 2px solid #18a558;
+  border-radius: 10px;
+  background: #e8f7ee;
+  color: #0f7a3d;
+  font-size: 20px;
+  font-weight: 600;
+}
+.poster.auto-doc .metric-emphasis .metric-value {
+  font-size: 40px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* Before / after compare (优化前 grey, 优化后 red) */
+.poster.auto-doc .ba-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.poster.auto-doc .ba-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.poster.auto-doc .ba-head {
+  border-radius: 8px;
+  padding: 10px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 600;
+}
+.poster.auto-doc .ba-before { background: #f1f1f1; color: #555; }
+.poster.auto-doc .ba-after { background: #ff2b22; color: #fff; }
+.poster.auto-doc .ba-col .image-holder { min-height: 0; }
+.poster.auto-doc .ba-text { margin: 0; font-size: 15px; line-height: 1.45; color: #333; }
+
+/* Three-column spec table: 主图 narrowest, 内容要求 ~2x, 示例 half width */
+.poster.auto-doc .spec-table {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.poster.auto-doc .spec-row {
+  display: grid;
+  grid-template-columns: 1fr 2fr 3fr;
+  gap: 8px;
+  align-items: stretch;
+}
+.poster.auto-doc .spec-cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  background: #f7f7f7;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 16px;
+  line-height: 1.45;
+  color: #333;
+}
+.poster.auto-doc .spec-head .spec-cell {
+  background: #ff2b22;
+  color: #fff;
+  font-weight: 600;
+  text-align: center;
+  align-items: center;
+}
+.poster.auto-doc .spec-cell .image-holder {
+  min-height: 0;
+  width: 100%;
+}
+.poster.auto-doc .spec-cell .doc-image {
+  width: 100%;
+  height: auto;
+  max-height: 240px;
+  object-fit: contain;
+}
 .edit-toolbar {
   position: fixed;
   right: 18px;
@@ -368,8 +486,19 @@ def strip_title_prefix(title: str) -> str:
     return re.sub(r"^\s*(?:主标题|标题|文档标题|page\s*title)\s*[:：]\s*", "", title, flags=re.I)
 
 
+SCREEN_LABEL_RE = re.compile(r"^第\s*[0-9一二三四五六七八九十]+(?:\s*[-–~至]\s*[0-9一二三四五六七八九十]+)?\s*屏")
+
+
 def is_label(text: str) -> bool:
-    return bool(text) and len(text) <= 40 and (text.endswith(("：", ":")) or re.match(r"^[0-9]{1,2}[.、．]", text))
+    if not text or len(text) > 40:
+        return False
+    if text.endswith(("：", ":")):
+        return True
+    if re.match(r"^[0-9]{1,2}[.、．]", text):
+        return True
+    if SCREEN_LABEL_RE.match(text):
+        return True
+    return False
 
 
 def split_sections(blocks: list[ParagraphBlock | TableBlock]) -> tuple[str, list[tuple[str, list[ParagraphBlock | TableBlock]]]]:
@@ -407,11 +536,144 @@ def split_sections(blocks: list[ParagraphBlock | TableBlock]) -> tuple[str, list
     return title, sections
 
 
-def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: DocumentObject, blobs: dict[str, bytes]) -> str:
+BRACKET_RE = re.compile(r"^\s*(【[^】]+】)\s*(.*)$")
+CONVERSION_RE = re.compile(r"^[一-龥A-Za-z·]{2,12}\s*[+＋]\s*\d+(?:\.\d+)?\s*%$")
+
+
+def is_conversion_metric(text: str) -> bool:
+    """A standalone "XX率+X%" style metric line that deserves green emphasis."""
+    return bool(CONVERSION_RE.fullmatch(clean_text(text)))
+
+
+def metric_emphasis(text: str) -> str:
+    cleaned = clean_text(text)
+    match = re.match(r"^(.*?[+＋]\s*)(\d+(?:\.\d+)?\s*%)$", cleaned)
+    if match:
+        head, value = match.group(1), match.group(2)
+        inner = f'<span class="metric-text">{esc(head)}</span><span class="metric-value">{esc(value)}</span>'
+    else:
+        inner = f'<span class="metric-text">{esc(cleaned)}</span>'
+    return f'<div class="metric-emphasis">{inner}</div>'
+
+
+def lead_block(text: str) -> str:
+    return f'<p class="lead">{esc(text)}</p>'
+
+
+def caption_line(text: str) -> str:
+    """Grey-square caption (no red square, no highlight) for example images."""
+    return f'<div class="caption-line">{esc(text)}</div>'
+
+
+def red_list_block(items: list[str]) -> str:
+    rows = []
+    for item in items:
+        item = clean_text(item)
+        if not item:
+            continue
+        bracket = BRACKET_RE.match(item)
+        if bracket:
+            rows.append(f"<li><b>{esc(bracket.group(1))}</b>{esc(bracket.group(2))}</li>")
+        else:
+            rows.append(f"<li>{esc(item)}</li>")
+    if not rows:
+        return ""
+    return f'<div class="text-block"><ul class="red-list">{"".join(rows)}</ul></div>'
+
+
+def grouped_text_block(label: str | None, items: list[str], images: list[str], blobs: dict[str, bytes], half: bool) -> str:
+    """One white module that merges a label with its sub-items and example images."""
+    inner = label_line(label) if label else ""
+    inner += source_list(items)
+    real_images = [t for t in images if t in blobs]
+    if real_images:
+        inner += caption_line("示例图：")
+        holder_class = "image-holder half-image" if half else "image-holder"
+        for target in real_images:
+            inner += f'<div class="{holder_class}">{image_tag(target, blobs, "示例图：")}</div>'
+    return f'<div class="text-block">{inner}</div>' if inner else ""
+
+
+def classify_table(table: Table) -> str:
+    if not table.rows:
+        return "generic"
+    header = " ".join(clean_text(cell.text) for cell in table.rows[0].cells)
+    ncol = len(table.rows[0].cells)
+    if "优化前" in header or "优化后" in header:
+        return "before_after"
+    if ncol >= 3 and ("内容要求" in header or "示例" in header):
+        return "spec"
+    if ncol == 2:
+        return "before_after"
+    return "generic"
+
+
+def before_after(table: Table, doc: DocumentObject, blobs: dict[str, bytes]) -> str:
+    rows = list(table.rows)
+    if not rows:
+        return ""
+    header = [clean_text(cell.text) for cell in rows[0].cells]
+    cols: list[str] = []
+    for ci in range(len(rows[0].cells)):
+        head = header[ci] if ci < len(header) else ""
+        is_before = "前" in head or (ci == 0 and "后" not in head)
+        head_class = "ba-before" if is_before else "ba-after"
+        body = ""
+        for row in rows[1:]:
+            if ci >= len(row.cells):
+                continue
+            cell = row.cells[ci]
+            for paragraph in cell.paragraphs:
+                for target in paragraph_images(doc, paragraph):
+                    if target in blobs:
+                        body += f'<div class="image-holder">{image_tag(target, blobs, head)}</div>'
+                txt = clean_text(paragraph.text)
+                if txt:
+                    body += f'<p class="ba-text">{esc(txt)}</p>'
+        cols.append(f'<div class="ba-col"><div class="ba-head {head_class}">{esc(head)}</div>{body}</div>')
+    return f'<div class="ba-compare">{"".join(cols)}</div>'
+
+
+def spec_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes]) -> str:
+    rows_html: list[str] = []
+    for row_idx, row in enumerate(table.rows):
+        cells_html: list[str] = []
+        for cell in row.cells:
+            content = ""
+            for paragraph in cell.paragraphs:
+                txt = clean_text(paragraph.text)
+                if txt:
+                    content += f"<span>{esc(txt)}</span>"
+                for target in paragraph_images(doc, paragraph):
+                    if target in blobs:
+                        content += f'<div class="image-holder">{image_tag(target, blobs, "示例")}</div>'
+            cells_html.append(f'<div class="spec-cell">{content}</div>')
+        row_class = "spec-row spec-head" if row_idx == 0 else "spec-row"
+        rows_html.append(f'<div class="{row_class}">{"".join(cells_html)}</div>')
+    return f'<div class="spec-table">{"".join(rows_html)}</div>'
+
+
+def table_group(label: str | None, table: Table, doc: DocumentObject, blobs: dict[str, bytes]) -> str:
+    kind = classify_table(table)
+    if kind == "before_after":
+        inner = before_after(table, doc, blobs)
+    elif kind == "spec":
+        inner = spec_table(table, doc, blobs)
+    else:
+        label_html = label_line(label) if label else ""
+        return f'<div class="text-block">{label_html}</div>{render_table(table, doc, blobs)}' if label else render_table(table, doc, blobs)
+    label_html = label_line(label) if label else ""
+    return f'<div class="text-block">{label_html}{inner}</div>'
+
+
+def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: DocumentObject, blobs: dict[str, bytes], *, is_intro: bool = False, half_images: bool = False) -> str:
     rendered: list[str] = []
     plain_items: list[str] = []
+    bracket_items: list[str] = []
     pending_label: str | None = None
     pending_items: list[str] = []
+    pending_images: list[str] = []
+    lead_done = False
 
     def flush_plain() -> None:
         nonlocal plain_items
@@ -419,43 +681,80 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
             rendered.append(plain_block(plain_items))
             plain_items = []
 
+    def flush_bracket() -> None:
+        nonlocal bracket_items
+        if bracket_items:
+            rendered.append(red_list_block(bracket_items))
+            bracket_items = []
+
     def flush_label() -> None:
-        nonlocal pending_label, pending_items
-        if pending_label is not None:
-            rendered.append(text_block(pending_label, pending_items))
+        nonlocal pending_label, pending_items, pending_images
+        if pending_label is not None or pending_images:
+            rendered.append(grouped_text_block(pending_label, pending_items, pending_images, blobs, half_images))
             pending_label = None
             pending_items = []
+            pending_images = []
 
     for block in blocks:
         if isinstance(block, TableBlock):
             flush_plain()
-            flush_label()
-            rendered.append(render_table(block.table, doc, blobs))
+            flush_bracket()
+            if pending_label is not None and not pending_items and not pending_images:
+                label = pending_label
+                pending_label = None
+                rendered.append(table_group(label, block.table, doc, blobs))
+            else:
+                flush_label()
+                rendered.append(table_group(None, block.table, doc, blobs))
             continue
 
-        if block.images:
+        if block.images and not block.text:
             flush_plain()
-            flush_label()
-            label = block.text if block.text else "示例图："
-            for target in block.images:
-                if target in blobs:
-                    rendered.append(image_frame(label, target, blobs))
+            flush_bracket()
+            if pending_label is not None:
+                pending_images.extend(block.images)
+            else:
+                rendered.append(grouped_text_block(None, [], block.images, blobs, half_images))
             continue
 
         text = block.text
         if not text:
             continue
+
+        if is_conversion_metric(text):
+            flush_plain()
+            flush_bracket()
+            flush_label()
+            rendered.append(metric_emphasis(text))
+            continue
+
+        if BRACKET_RE.match(text):
+            flush_plain()
+            flush_label()
+            bracket_items.append(text)
+            continue
+
         if is_label(text):
             flush_plain()
+            flush_bracket()
             flush_label()
             pending_label = text
             pending_items = []
-        elif pending_label is not None:
+            pending_images = []
+            continue
+
+        if pending_label is not None:
             pending_items.append(text)
         else:
-            plain_items.append(text)
+            flush_bracket()
+            if is_intro and not lead_done and not rendered and not plain_items:
+                rendered.append(lead_block(text))
+                lead_done = True
+            else:
+                plain_items.append(text)
 
     flush_plain()
+    flush_bracket()
     flush_label()
     return "".join(rendered) or plain_block([""])
 
@@ -507,8 +806,12 @@ def render_html(docx_path: Path, design_path: Path, font_path: Path | None, upda
     cards: list[str] = []
     chapter = 1
     for section_title, section_blocks in sections:
-        body = render_section_blocks(section_blocks, doc, blobs)
-        if section_title == "整体规范综述" and not cards:
+        is_intro = section_title == "整体规范综述" and not cards
+        half_images = "图文详情" in section_title
+        body = render_section_blocks(
+            section_blocks, doc, blobs, is_intro=is_intro, half_images=half_images
+        )
+        if is_intro:
             cards.append(render_card(section_title, body, None))
         else:
             cards.append(render_card(section_title, body, chapter))
