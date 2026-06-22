@@ -311,7 +311,17 @@ def render_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes]) -> 
     return '<div class="doc-table-wrap"><table class="doc-table">' + "".join(rows_html) + "</table></div>"
 
 
-def is_section_heading(block: ParagraphBlock) -> bool:
+def document_uses_heading_styles(blocks: list[ParagraphBlock | TableBlock]) -> bool:
+    """True when the DOCX marks its chapters with real Word heading styles."""
+    for block in blocks:
+        if isinstance(block, ParagraphBlock) and block.text:
+            style = block.style.lower()
+            if style.startswith("heading") or "标题" in style:
+                return True
+    return False
+
+
+def is_section_heading(block: ParagraphBlock, heading_styles_present: bool = False) -> bool:
     text = block.text
     if not text or block.images:
         return False
@@ -320,18 +330,42 @@ def is_section_heading(block: ParagraphBlock) -> bool:
         return True
     if len(text) > 48:
         return False
-    if re.match(r"^[一二三四五六七八九十]+[、.．]", text):
+    # A paragraph ending in a colon is a label/lead-in, never a chapter title.
+    if text.endswith(("：", ":")):
+        return False
+    # Explicit chapter numerals always win, including bracketed forms like （一）.
+    if re.match(r"^[（(]?[一二三四五六七八九十]+[）)、.．]", text):
         return True
     if re.match(r"^第[一二三四五六七八九十0-9]+[章节部分]", text):
         return True
-    if re.match(r"^[0-9]{1,2}[.、．]\s*[^：:]{1,24}$", text) and not text.endswith(("：", ":")):
-        return True
-    top_level_prefixes = ("整体规范", "主图", "主图视频", "长标题", "短标题", "卖点", "参数楼层", "属性", "图文详情")
-    if text.startswith(top_level_prefixes) and len(text) <= 40:
-        return True
     if re.match(r"^【第[一二三四五六七八九十0-9-]+屏】", text):
         return True
+    # Heuristic fallbacks only fire when the doc has NO real heading styles to
+    # trust. Otherwise they promote in-chapter labels (主图首张, 卖点建议顺序…)
+    # into spurious top-level cards.
+    if heading_styles_present:
+        return False
+    if re.match(r"^[0-9]{1,2}[.、．]\s*[^：:]{1,24}$", text):
+        return True
+    top_level_prefixes = ("整体规范", "主图", "主图视频", "长标题", "短标题", "卖点", "参数楼层", "属性", "图文详情")
+    if text.startswith(top_level_prefixes) and len(text) <= 12 and "：" not in text and ":" not in text:
+        return True
     return False
+
+
+def clean_section_title(text: str) -> str:
+    """Strip leading chapter numerals and trailing colons from a card title."""
+    cleaned = text.strip()
+    cleaned = re.sub(r"^[（(][一二三四五六七八九十0-9]+[）)]\s*", "", cleaned)
+    cleaned = re.sub(r"^[一二三四五六七八九十]+[、.．]\s*", "", cleaned)
+    cleaned = re.sub(r"^第[一二三四五六七八九十0-9]+[章节部分][:：、.．\s]*", "", cleaned)
+    cleaned = cleaned.rstrip("：:").strip()
+    return cleaned or text.strip()
+
+
+def strip_title_prefix(title: str) -> str:
+    """Remove a leading label like 主标题：/ 标题: from the document main title."""
+    return re.sub(r"^\s*(?:主标题|标题|文档标题|page\s*title)\s*[:：]\s*", "", title, flags=re.I)
 
 
 def is_label(text: str) -> bool:
@@ -342,18 +376,28 @@ def split_sections(blocks: list[ParagraphBlock | TableBlock]) -> tuple[str, list
     first_text_index = next((i for i, block in enumerate(blocks) if isinstance(block, ParagraphBlock) and block.text), None)
     if first_text_index is None:
         return "未命名规范", [("整体规范综述", blocks)]
-    title = blocks[first_text_index].text  # type: ignore[union-attr]
+    title = strip_title_prefix(blocks[first_text_index].text)  # type: ignore[union-attr]
     body = blocks[first_text_index + 1 :]
+    heading_styles_present = document_uses_heading_styles(blocks)
     sections: list[tuple[str, list[ParagraphBlock | TableBlock]]] = []
     current_title = "整体规范综述"
     current_blocks: list[ParagraphBlock | TableBlock] = []
 
     for block in body:
-        if isinstance(block, ParagraphBlock) and is_section_heading(block):
+        if isinstance(block, ParagraphBlock) and is_section_heading(block, heading_styles_present):
             if current_blocks:
                 sections.append((current_title, current_blocks))
-            current_title = block.text
+            current_title = clean_section_title(block.text)
             current_blocks = []
+        elif (
+            isinstance(block, ParagraphBlock)
+            and block.text
+            and not block.images
+            and block.text.rstrip("：:").strip() == current_title.rstrip("：:").strip()
+        ):
+            # Drop a paragraph that merely restates the current card title
+            # (e.g. an "整体规范综述：" lead-in under the 整体规范综述 card).
+            continue
         else:
             current_blocks.append(block)
     if current_blocks:
@@ -418,6 +462,7 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
 
 def hero_title_html(title: str) -> str:
     """Force the "商品信息运营规范" category suffix onto the hero title's second line."""
+    title = strip_title_prefix(title)
     marker = "商品信息运营规范"
     if marker in title:
         prefix = title[: title.index(marker)].rstrip()
