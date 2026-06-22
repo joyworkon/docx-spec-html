@@ -76,6 +76,18 @@ def strip_tags(value: str) -> str:
     return clean_text(re.sub(r"<[^>]+>", "", value))
 
 
+def normalize_for_match(value: str) -> str:
+    """Drop structural markers the generator legitimately rewrites, so canonical
+    transformations (stripped 主标题： prefix, chapter numerals moved into the
+    01-05 badge, { 标题 } braces, trailing colons) are not flagged as missing."""
+    value = re.sub(r"^\s*(?:主标题|标题|文档标题|page\s*title)\s*[:：]\s*", "", value, flags=re.I)
+    value = re.sub(r"[（(][一二三四五六七八九十0-9]+[）)]", "", value)
+    value = re.sub(r"^[一二三四五六七八九十]+[、.．]", "", value)
+    value = re.sub(r"^第[一二三四五六七八九十0-9]+[章节部分]", "", value)
+    value = value.replace("{", "").replace("}", "")
+    return re.sub(r"[：:\s]", "", value)
+
+
 def count_class(html_text: str, class_name: str) -> int:
     pattern = rf'<[^>]+\bclass="[^"]*\b{re.escape(class_name)}\b[^"]*"'
     return len(re.findall(pattern, html_text, flags=re.I))
@@ -142,11 +154,17 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
     actual_counts = Counter()
     missing: list[str] = []
     underrepresented: list[dict[str, Any]] = []
+    normalized_visible = normalize_for_match(visible)
 
     for text, expected in expected_counts.items():
         actual = visible.count(text)
         actual_counts[text] = actual
         if actual == 0:
+            normalized_text = normalize_for_match(text)
+            if normalized_text and normalized_text in normalized_visible:
+                # Present after canonical rewrite (title prefix / chapter numeral
+                # / brace / colon normalization); not a real omission.
+                continue
             missing.append(text)
         elif actual < expected:
             underrepresented.append({"text": text, "expected": expected, "actual": actual})
@@ -156,8 +174,7 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
     expected_tables = docx_table_count(docx_path)
     actual_table_like = (
         len(re.findall(r"<table\b", html_text, flags=re.I))
-        + html_text.count("word-table-spec")
-        + html_text.count("doc-table")
+        + len(re.findall(r'class="[^"]*word-table-spec', html_text))
     )
 
     css_checks = {
