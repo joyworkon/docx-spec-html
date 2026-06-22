@@ -174,7 +174,7 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
     expected_tables = docx_table_count(docx_path)
     actual_table_like = (
         len(re.findall(r"<table\b", html_text, flags=re.I))
-        + len(re.findall(r'class="[^"]*word-table-spec', html_text))
+        + len(re.findall(r'class="[^"]*(?:word-table-spec|spec-table|ba-compare)', html_text))
     )
 
     css_checks = {
