@@ -1,0 +1,6 @@
+# macOS
+.DS_Store
+
+# test/ is its own separate git repo (design source: index.html, fonts, decorator.svg)
+# kept out of this repo to avoid nested-repo collisions
+/test/
