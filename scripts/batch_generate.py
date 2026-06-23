@@ -202,6 +202,15 @@ body { background: #737373; }
   object-fit: contain;
 }
 
+/* Example images under a label (e.g. 短标题「示例：」): half the container
+   width and all equal width, regardless of each picture's aspect ratio. */
+.poster.auto-doc .sample-image .doc-image {
+  width: 50%;
+  max-width: 50%;
+  height: auto;
+  object-fit: contain;
+}
+
 /* Conversion-metric emphasis bar: white fill, green outline, centred.
    Black label + green "+X%" with an up-arrow. */
 .poster.auto-doc .metric-emphasis {
@@ -645,7 +654,14 @@ def grouped_text_block(label: str | None, items: list[str], images: list[str], b
         # level (28px) so they align with .source-list sub-items.
         indent = " indent" if label else ""
         inner += f'<div class="caption-line{indent}">示例图：</div>'
-        holder_class = ("image-holder half-image" if half else "image-holder") + indent
+        if half:
+            holder_class = "image-holder half-image" + indent
+        elif len(real_images) >= 2:
+            # Multiple side-by-side reference images (e.g. 短标题「示例：」): half
+            # the container width, all equal width.
+            holder_class = "image-holder sample-image" + indent
+        else:
+            holder_class = "image-holder" + indent
         for target in real_images:
             inner += f'<div class="{holder_class}">{image_tag(target, blobs, "示例图：")}</div>'
     return f'<div class="text-block">{inner}</div>' if inner else ""
@@ -849,16 +865,20 @@ def section_head(num: int | None, title: str) -> str:
     )
 
 
-def normalize_update_label(value: str | None) -> str:
+def normalize_update_label(value: str | None, docx_path: Path | None = None) -> str:
     if not value:
-        today = date.today()
-        return f"更新日期 {today.year}年{today.month:02d}月"
+        # Default to the source file's last-modified date, to the day.
+        d = date.fromtimestamp(docx_path.stat().st_mtime) if docx_path is not None else date.today()
+        return f"更新日期 {d.year}年{d.month}月{d.day}日"
     text = clean_text(value)
     if re.search(r"[\u4e00-\u9fff]", text):
         return text
-    match = re.search(r"(20\d{2})[.\-/年 ]+(\d{1,2})", text)
+    match = re.search(r"(20\d{2})[.\-/年 ]+(\d{1,2})(?:[.\-/月 ]+(\d{1,2}))?", text)
     if match:
-        return f"更新日期 {match.group(1)}年{int(match.group(2)):02d}月"
+        year, month, day = match.group(1), int(match.group(2)), match.group(3)
+        if day:
+            return f"更新日期 {year}年{month}月{int(day)}日"
+        return f"更新日期 {year}年{month}月"
     return f"更新日期 {text}"
 
 
@@ -921,10 +941,11 @@ def docx_inputs(input_path: Path) -> list[Path]:
     return sorted(path for path in input_path.rglob("*.docx") if not path.name.startswith("~$"))
 
 
-def generate_one(docx_path: Path, output_dir: Path, design_path: Path, font_path: Path | None, updated_label: str, editable: bool) -> dict[str, Any]:
+def generate_one(docx_path: Path, output_dir: Path, design_path: Path, font_path: Path | None, updated_value: str | None, editable: bool) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     out_html = output_dir / f"{slugify(docx_path.stem)}-output.html"
     report_path = output_dir / f"{slugify(docx_path.stem)}-report.json"
+    updated_label = normalize_update_label(updated_value, docx_path)
     html_text = render_html(docx_path, design_path, font_path, updated_label, editable)
     out_html.write_text(html_text, encoding="utf-8")
     report = validate(docx_path, out_html)
@@ -954,8 +975,7 @@ def main() -> int:
         raise SystemExit(f"No .docx files found: {args.input}")
 
     font_path = args.font if args.font and args.font.exists() else None
-    updated_label = normalize_update_label(args.updated)
-    summary = [generate_one(path, args.output_dir, args.design, font_path, updated_label, args.editable) for path in inputs]
+    summary = [generate_one(path, args.output_dir, args.design, font_path, args.updated, args.editable) for path in inputs]
     summary_path = args.output_dir / "batch-summary.json"
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"count": len(summary), "summary": str(summary_path), "items": summary}, ensure_ascii=False, indent=2))
