@@ -189,6 +189,10 @@ body { background: #737373; }
 }
 .poster.auto-doc .text-block .caption-line { margin-top: 14px; }
 .poster.auto-doc .text-block .image-holder { margin-top: 10px; }
+/* Sub-level indent: example caption + images sit one level under their label,
+   aligned with .source-list (28px). */
+.poster.auto-doc .caption-line.indent { margin-left: 28px; }
+.poster.auto-doc .image-holder.indent { margin-left: 28px; }
 
 /* Half-page-width images (used in 图文详情) */
 .poster.auto-doc .half-image .doc-image {
@@ -201,24 +205,29 @@ body { background: #737373; }
 /* Conversion-metric green emphasis bar */
 .poster.auto-doc .metric-emphasis {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
   gap: 6px;
   width: 100%;
   margin: 0;
-  padding: 14px 24px;
-  border: 2px solid #18a558;
+  padding: 16px 24px;
+  border: 1px solid #18a558;
   border-radius: 10px;
   background: #e8f7ee;
   color: #0f7a3d;
   font-size: 20px;
   font-weight: 600;
 }
+/* The small label and the big number sit on the same baseline (bottom-aligned);
+   the whole line stays vertically centred in the bar via symmetric padding. */
+.poster.auto-doc .metric-emphasis .metric-text { line-height: 1; }
 .poster.auto-doc .metric-emphasis .metric-value {
   font-size: 40px;
   font-weight: 800;
   line-height: 1;
 }
+/* Inside a white module, leave room between the bar and the table below it. */
+.poster.auto-doc .text-block .metric-emphasis { margin: 0 0 12px; }
 
 /* Before / after compare (优化前 grey, 优化后 red) */
 .poster.auto-doc .ba-compare {
@@ -538,6 +547,21 @@ def split_sections(blocks: list[ParagraphBlock | TableBlock]) -> tuple[str, list
 
 BRACKET_RE = re.compile(r"^\s*(【[^】]+】)\s*(.*)$")
 CONVERSION_RE = re.compile(r"^[一-龥A-Za-z·]{2,12}\s*[+＋]\s*\d+(?:\.\d+)?\s*%$")
+# "前缀：内容" lead-in, e.g. 总结：…/字数范围：…/卖点建议顺序：… — gets a red square + pink highlight.
+COLON_PREFIX_RE = re.compile(r"^([^：:\n]{1,18}[：:])(.+)$")
+# A conversion metric embedded inside a longer label, e.g. "2.优化前后图 商详转化率+2%".
+METRIC_INLINE_RE = re.compile(r"[一-龥A-Za-z·]{2,12}\s*[+＋]\s*\d+(?:\.\d+)?\s*%")
+
+
+def split_label_metric(label: str) -> tuple[str | None, str | None]:
+    """Pull an embedded "XX率+X%" metric out of a label so it can be rendered as a
+    standalone green emphasis bar, leaving the rest of the label as the title."""
+    match = METRIC_INLINE_RE.search(label)
+    if not match:
+        return label, None
+    metric = clean_text(match.group(0))
+    rest = clean_text(label[: match.start()] + " " + label[match.end():]).strip(" 　：:")
+    return (rest or None), metric
 
 
 def is_conversion_metric(text: str) -> bool:
@@ -574,21 +598,32 @@ def red_list_block(items: list[str]) -> str:
         bracket = BRACKET_RE.match(item)
         if bracket:
             rows.append(f"<li><b>{esc(bracket.group(1))}</b>{esc(bracket.group(2))}</li>")
-        else:
-            rows.append(f"<li>{esc(item)}</li>")
+            continue
+        colon = COLON_PREFIX_RE.match(item)
+        if colon:
+            rows.append(f"<li><b>{esc(colon.group(1))}</b>{esc(colon.group(2).strip())}</li>")
+            continue
+        rows.append(f"<li>{esc(item)}</li>")
     if not rows:
         return ""
     return f'<div class="text-block"><ul class="red-list">{"".join(rows)}</ul></div>'
 
 
-def grouped_text_block(label: str | None, items: list[str], images: list[str], blobs: dict[str, bytes], half: bool) -> str:
-    """One white module that merges a label with its sub-items and example images."""
+def grouped_text_block(label: str | None, items: list[str], images: list[str], blobs: dict[str, bytes], half: bool, metric: str | None = None) -> str:
+    """One white module that merges a label with its sub-items and example images.
+    An embedded "XX率+X%" metric (pulled out of the label) renders as a green bar
+    directly under the title, so it spans the module's inner width."""
     inner = label_line(label) if label else ""
+    if metric:
+        inner += metric_emphasis(metric)
     inner += source_list(items)
     real_images = [t for t in images if t in blobs]
     if real_images:
-        inner += caption_line("示例图：")
-        holder_class = "image-holder half-image" if half else "image-holder"
+        # When the images sit under a label, indent the caption and images one
+        # level (28px) so they align with .source-list sub-items.
+        indent = " indent" if label else ""
+        inner += f'<div class="caption-line{indent}">示例图：</div>'
+        holder_class = ("image-holder half-image" if half else "image-holder") + indent
         for target in real_images:
             inner += f'<div class="{holder_class}">{image_tag(target, blobs, "示例图：")}</div>'
     return f'<div class="text-block">{inner}</div>' if inner else ""
@@ -653,7 +688,7 @@ def spec_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes]) -> st
     return f'<div class="spec-table">{"".join(rows_html)}</div>'
 
 
-def table_group(label: str | None, table: Table, doc: DocumentObject, blobs: dict[str, bytes]) -> str:
+def table_group(label: str | None, table: Table, doc: DocumentObject, blobs: dict[str, bytes], metric: str | None = None) -> str:
     kind = classify_table(table)
     if kind == "before_after":
         inner = before_after(table, doc, blobs)
@@ -663,7 +698,10 @@ def table_group(label: str | None, table: Table, doc: DocumentObject, blobs: dic
         label_html = label_line(label) if label else ""
         return f'<div class="text-block">{label_html}</div>{render_table(table, doc, blobs)}' if label else render_table(table, doc, blobs)
     label_html = label_line(label) if label else ""
-    return f'<div class="text-block">{label_html}{inner}</div>'
+    # Embedded metric (e.g. 商详转化率+2%) sits under the title, spanning the same
+    # width as the before/after (优化前+优化后) columns below it.
+    metric_html = metric_emphasis(metric) if metric else ""
+    return f'<div class="text-block">{label_html}{metric_html}{inner}</div>'
 
 
 def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: DocumentObject, blobs: dict[str, bytes], *, is_intro: bool = False, half_images: bool = False) -> str:
@@ -671,6 +709,7 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
     plain_items: list[str] = []
     bracket_items: list[str] = []
     pending_label: str | None = None
+    pending_metric: str | None = None
     pending_items: list[str] = []
     pending_images: list[str] = []
     lead_done = False
@@ -688,10 +727,11 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
             bracket_items = []
 
     def flush_label() -> None:
-        nonlocal pending_label, pending_items, pending_images
-        if pending_label is not None or pending_images:
-            rendered.append(grouped_text_block(pending_label, pending_items, pending_images, blobs, half_images))
+        nonlocal pending_label, pending_metric, pending_items, pending_images
+        if pending_label is not None or pending_images or pending_metric:
+            rendered.append(grouped_text_block(pending_label, pending_items, pending_images, blobs, half_images, pending_metric))
             pending_label = None
+            pending_metric = None
             pending_items = []
             pending_images = []
 
@@ -701,8 +741,10 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
             flush_bracket()
             if pending_label is not None and not pending_items and not pending_images:
                 label = pending_label
+                metric = pending_metric
                 pending_label = None
-                rendered.append(table_group(label, block.table, doc, blobs))
+                pending_metric = None
+                rendered.append(table_group(label, block.table, doc, blobs, metric=metric))
             else:
                 flush_label()
                 rendered.append(table_group(None, block.table, doc, blobs))
@@ -738,20 +780,25 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
             flush_plain()
             flush_bracket()
             flush_label()
-            pending_label = text
+            rest, metric = split_label_metric(text)
+            pending_label = rest
+            pending_metric = metric
             pending_items = []
             pending_images = []
             continue
 
         if pending_label is not None:
             pending_items.append(text)
+        elif is_intro and not lead_done and not rendered and not plain_items and not bracket_items:
+            rendered.append(lead_block(text))
+            lead_done = True
+        elif COLON_PREFIX_RE.match(text):
+            # Top-level "前缀：内容" lead-in becomes a red-square + pink-highlight list item.
+            flush_plain()
+            bracket_items.append(text)
         else:
             flush_bracket()
-            if is_intro and not lead_done and not rendered and not plain_items:
-                rendered.append(lead_block(text))
-                lead_done = True
-            else:
-                plain_items.append(text)
+            plain_items.append(text)
 
     flush_plain()
     flush_bracket()
