@@ -1101,6 +1101,7 @@ VS 占位图: 高140px, 圆角8px
   - **回退（脚本自动）**：`batch_generate.py` 在无视觉能力时，用同卡 `主图首张：` 捕获到的模块名按固定空间模板自动重画；找不到预期模块名则回退为嵌原图。
   - 校验器把每个 `.module-layout` 计为 1 张图片（`redrawn_image_count`），不算缺图。
 - **整页下载为图片**：每个生成页右下角固定一个「下载整页图片」按钮（`.dl-page-btn`，`data-html2canvas-ignore`），内嵌 `assets/vendor/html2canvas.min.js`（离线自包含），点击把 `.poster` 整体光栅化为单张 PNG 下载；缩放比按页高自动夹取（`min(2, 32000/页高)`）以不超过浏览器 canvas 高度上限。
+  - **html2canvas 不支持 `object-fit`**：凡要进入下载图的内容图，**不要靠 `object-fit:contain` + `max-height` 来保比例**（屏幕上正常、下载时会被拉伸压扁）。统一用「定一边、另一边 `auto`」：等宽图用 `width:100%; height:auto`（如 `.spec-cell .doc-image`），其余用 `width:auto; max-width:100%`，让图片元素自身的盒子保持真实比例。
 - **更新日期默认取源文件修改日期、精确到日**：`.updated` 默认用源 `.docx` 的最后修改日期（`st_mtime`），格式 `更新日期 YYYY年M月D日`（月/日不补零，如 `更新日期 2026年6月22日`）；显式传 `--updated` 支持 `YYYY.MM` 或 `YYYY.MM.DD`，给到日则输出到日。
 - **卡片正文整体放大约 1.5×（生成器默认比例）**：为匹配目标视觉比例，卡片正文统一放大约 1.5 倍——`.lead`/`.red-list`/`.label-line`/`.source-list`/`.plain-block p`/`.example-line`/`.caption-line`≈28px、表格 `.doc-table`/`.spec-cell`≈24px、`.ba-head`≈27px/`.ba-text`≈23px；同时列表圆点≈16px、二级缩进≈38–42px、模块间距≈27px 一并等比放大。hero 区主标题 `h1`（68→102px）、右上 `OPERATION STANDARDS`（14→21px，连同其括号胶囊框 `.hero-mark` 155×62→232×93px、圆角 32→48px、边框 1→2px 一并放大，文字仍居中以保持与括号的间距）、右下更新日期（18→27px）同样 ×1.5，`.hero` 增高至 600px 以容纳放大后的标题、分隔线与日期。**唯卡片标题栏 `.section-head`（`h2` 47px / `.chapter` 17px / `.en-label`＝INTRODUCTION 15px）与转化率绿框 `.metric-emphasis`（保持原始 24/40px 文字＋34px 箭头）不参与放大。** 实现：在 `GENERIC_CSS` 末尾用更高特异性 `.poster.auto-doc .类名` 覆盖 §2.2／§17 基础字号。
 

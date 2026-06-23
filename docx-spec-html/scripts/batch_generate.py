@@ -392,10 +392,12 @@ body { background: #737373; }
   width: 100%;
 }
 .poster.auto-doc .spec-cell .doc-image {
+  /* Equal width via 100%, with height:auto driving the true aspect ratio.
+     No max-height / object-fit: those force a wrong-ratio box that html2canvas
+     (which ignores object-fit) would squish in the downloaded PNG. */
+  display: block;
   width: 100%;
   height: auto;
-  max-height: 240px;
-  object-fit: contain;
 }
 .edit-toolbar {
   position: fixed;
