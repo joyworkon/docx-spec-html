@@ -177,6 +177,10 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
 
     expected_images = docx_image_count(docx_path)
     actual_images = len(re.findall(r"<img\b", html_text, flags=re.I))
+    # A 模块化布局图 schematic is intentionally redrawn as a .module-layout block
+    # instead of embedding the raw image, so each redraw stands in for one image.
+    redrawn_images = len(re.findall(r'class="[^"]*module-layout', html_text))
+    effective_images = actual_images + redrawn_images
     expected_tables = docx_table_count(docx_path)
     actual_table_like = (
         len(re.findall(r"<table\b", html_text, flags=re.I))
@@ -205,14 +209,14 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
             ]
         ),
     }
-    structure_checks, structure_warnings = structural_checks(html_text, visible, expected_images)
+    structure_checks, structure_warnings = structural_checks(html_text, visible, max(0, expected_images - redrawn_images))
 
     warnings: list[str] = []
     if missing:
         warnings.append("Some DOCX text fragments are missing from visible HTML text.")
     if underrepresented:
         warnings.append("Some repeated DOCX text fragments appear fewer times in HTML.")
-    if actual_images < expected_images:
+    if effective_images < expected_images:
         warnings.append("HTML image count is lower than DOCX image occurrence count.")
     if expected_tables and actual_table_like < expected_tables:
         warnings.append("DOCX contains tables; HTML may not preserve all table-like structures.")
@@ -231,6 +235,7 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
         "underrepresented_texts": underrepresented[:50],
         "expected_image_count": expected_images,
         "actual_image_count": actual_images,
+        "redrawn_image_count": redrawn_images,
         "expected_table_count": expected_tables,
         "actual_table_like_count": actual_table_like,
         "css_checks": css_checks,

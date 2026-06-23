@@ -101,6 +101,8 @@ python3 scripts/batch_generate.py /path/to/input-folder /path/to/output-folder
 - Do not promote image captions or formula captions into higher-level titles unless the source hierarchy requires it.
 - For five or more consecutive screen/detail examples, use `.detail-screen-grid`: two columns by default, `.span-full` only for wide or critical images. Do not use four-column `.screens-grid` for these examples.
 - Keep the editing toolbar optional. Do not enable `--editable` for final locked deliverables unless the user asks for editable review output.
+- Every generated page carries a fixed "下载整页图片" button (bottom-right) that rasterises the whole poster to one PNG via the embedded `assets/vendor/html2canvas.min.js`. Keep it self-contained — do not switch it to a CDN `<script src>`.
+- **Redraw the「首张主图模块化布局图」schematic with your own vision.** When a `…首张主图模块化布局图：` label is followed by a reference image, do NOT ship the raw watermarked screenshot. Use your multimodal image-reading ability (or an image-reading MCP) to read the image's ACTUAL on-image text and the real size/position of each module, then redraw it 1:1 into a `.module-layout` block (light-yellow fill, red border, portrait proportion) using the real on-image wording. The generator's name-driven `.module-layout` is only a no-vision fallback — replace it with your faithful redraw before delivery. The validator counts each `.module-layout` as one image (`redrawn_image_count`).
 
 ## Quality Bar
 
