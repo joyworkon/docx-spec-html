@@ -26,6 +26,7 @@ from validate_output import validate
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DESIGN = SKILL_ROOT / "references" / "mpdn50eu-design.md"
 DEFAULT_FONT = SKILL_ROOT / "assets" / "fonts" / "JINGDONGLangZhengTi1-Bold.ttf"
+DEFAULT_H2C = SKILL_ROOT / "assets" / "vendor" / "html2canvas.min.js"
 
 
 @dataclass
@@ -211,6 +212,90 @@ body { background: #737373; }
   object-fit: contain;
 }
 
+/* Module-layout schematic: a clean redraw of the "首张主图模块化布局图"
+   reference image (品牌 / 主要功能卖点 / 主品 / 赠品 / 物流质保 / 材质 / 营销卖点),
+   keeping the original spatial arrangement but dropping the watermark. */
+.poster.auto-doc .module-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 620px;        /* keep the original schematic's portrait proportion */
+  margin: 0 auto;
+  background: #fff8e1;     /* light-yellow fill */
+  border: 2px solid #ff2b22;  /* red border */
+  border-radius: 12px;
+  padding: 22px;
+}
+.poster.auto-doc .module-layout > * { font-weight: 700; }
+.poster.auto-doc .ml-brand {
+  align-self: flex-start;
+  background: #f4a09c;
+  color: #7a1f1a;
+  padding: 14px 30px;
+  border-radius: 8px;
+  font-size: 22px;
+}
+.poster.auto-doc .ml-frame {
+  position: relative;
+  background: #b6e6bd;
+  border-radius: 12px;
+  padding: 24px 22px 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  min-height: 420px;
+}
+.poster.auto-doc .ml-band {
+  width: 100%;
+  background: #f7c98b;
+  color: #5a3d12;
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+  font-size: 26px;
+}
+.poster.auto-doc .ml-sub {
+  background: #efe6a6;
+  color: #5a4d12;
+  border-radius: 22px;
+  padding: 12px 30px;
+  font-size: 22px;
+}
+.poster.auto-doc .ml-center {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: #1f5a2a;
+  font-size: 26px;
+}
+.poster.auto-doc .ml-corner {
+  position: absolute;
+  bottom: 22px;
+  max-width: 32%;
+  padding: 14px 18px;
+  border-radius: 8px;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.poster.auto-doc .ml-gift { left: 22px; background: #f6c0d0; color: #7a2447; }
+.poster.auto-doc .ml-logi { right: 22px; background: #f4b78a; color: #6e3b13; text-align: right; }
+.poster.auto-doc .ml-bottom {
+  display: grid;
+  grid-template-columns: 1fr 3fr;
+  gap: 12px;
+}
+.poster.auto-doc .ml-bottom > div {
+  border-radius: 8px;
+  padding: 24px;
+  text-align: center;
+  font-size: 24px;
+}
+.poster.auto-doc .ml-material { background: #bcdcf2; color: #1c4a73; }
+.poster.auto-doc .ml-market { background: #cfc9ee; color: #3a2f78; }
+
 /* Conversion-metric emphasis bar: white fill, green outline, centred.
    Black label + green "+X%" with an up-arrow. */
 .poster.auto-doc .metric-emphasis {
@@ -336,6 +421,24 @@ body { background: #737373; }
   cursor: pointer;
 }
 .edit-toolbar button.secondary { background: #555; }
+.dl-page-btn {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 9999;
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 18px;
+  background: #ff2b22;
+  color: #fff;
+  font-family: "MiSans", "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+.dl-page-btn[disabled] { opacity: 0.6; cursor: default; }
 body.editing [contenteditable="true"] {
   outline: 2px dashed rgba(255, 43, 34, 0.75);
   outline-offset: 3px;
@@ -357,8 +460,12 @@ body.editing [contenteditable="true"] {
 .poster.auto-doc .red-list p { font-size: 28px; }
 .poster.auto-doc .label-line { font-size: 28px; }
 .poster.auto-doc .source-list li { font-size: 28px; }
-.poster.auto-doc .example-line { font-size: 27px; }
-.poster.auto-doc .caption-line { font-size: 26px; }
+.poster.auto-doc .source-list b { font-size: 28px; }
+/* All text that follows a red-square title shares ONE size (28px): list items,
+   sub-captions ("示例图：") and example lines. Table cells keep their own
+   tighter tier below. */
+.poster.auto-doc .example-line { font-size: 28px; }
+.poster.auto-doc .caption-line { font-size: 28px; }
 .poster.auto-doc .doc-table th,
 .poster.auto-doc .doc-table td { font-size: 24px; }
 .poster.auto-doc .spec-cell { font-size: 24px; }
@@ -420,7 +527,7 @@ body.editing [contenteditable="true"] {
 
 
 EDITABLE_RUNTIME = """
-<div class="edit-toolbar" data-html-edit-toolbar>
+<div class="edit-toolbar" data-html-edit-toolbar data-html2canvas-ignore>
   <button type="button" data-edit-toggle>编辑文字</button>
   <button type="button" data-edit-save>下载HTML</button>
   <button type="button" class="secondary" data-edit-exit>退出编辑</button>
@@ -715,6 +822,51 @@ def red_list_block(items: list[str]) -> str:
     return f'<div class="text-block"><ul class="red-list">{"".join(rows)}</ul></div>'
 
 
+def module_layout(items: list[str], fallback: str) -> str:
+    """Faithfully redraw a「首张主图模块化布局图」schematic as clean coloured
+    blocks, driven by the captured 主图首张 module names — same spatial layout
+    (品牌 top-left, 主要功能卖点 banner, 主品 centre, 赠品/物流 corners, 材质/营销
+    bottom row), no watermark. Falls back to the raw image when the expected
+    modules can't be found."""
+    names = [re.split(r"[：:]", it, 1)[0].strip() for it in items]
+
+    def find(*keys: str) -> str | None:
+        for name in names:
+            if any(k in name for k in keys):
+                return name
+        return None
+
+    brand = find("品牌")
+    band = find("主要功能卖点", "核心卖点", "功能卖点")
+    sub = find("其他功能", "多功能")
+    center = find("场景", "产品展示", "主品")
+    material = find("材质")
+    market = find("营销卖点", "营销")
+    if not (band and center):
+        return fallback
+
+    center_label = "主品（场景化展示）" if center and "场景" in center else (center or "主品")
+
+    def blk(cls: str, text: str) -> str:
+        return f'<div class="{cls}">{esc(text)}</div>'
+
+    frame = blk("ml-band", band)
+    if sub:
+        frame += blk("ml-sub", sub)
+    frame += blk("ml-center", center_label)
+    frame += blk("ml-corner ml-gift", "赠品（可选）")
+    frame += blk("ml-corner ml-logi", "物流信息 / 质保时间")
+    return (
+        '<div class="module-layout">'
+        + blk("ml-brand", f"{brand or '品牌'} LOGO")
+        + f'<div class="ml-frame">{frame}</div>'
+        + '<div class="ml-bottom">'
+        + blk("ml-material", material or "材质")
+        + blk("ml-market", market or "主要营销卖点")
+        + "</div></div>"
+    )
+
+
 def grouped_text_block(label: str | None, items: list[str], images: list[str], blobs: dict[str, bytes], half: bool, metric: str | None = None) -> str:
     """One white module that merges a label with its sub-items and example images.
     An embedded "XX率+X%" metric (pulled out of the label) renders as a green bar
@@ -825,6 +977,7 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
     pending_metric: str | None = None
     pending_items: list[str] = []
     pending_images: list[str] = []
+    module_items: list[str] = []  # captured 主图首张 module names, for the layout redraw
     lead_done = False
 
     def flush_plain() -> None:
@@ -840,13 +993,29 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
             bracket_items = []
 
     def flush_label() -> None:
-        nonlocal pending_label, pending_metric, pending_items, pending_images
-        if pending_label is not None or pending_images or pending_metric:
+        nonlocal pending_label, pending_metric, pending_items, pending_images, module_items
+        if pending_label is None and not pending_images and not pending_metric:
+            return
+        # Capture the 主图首张 module list so a later 模块化布局图 can be redrawn.
+        if pending_label and "主图首张" in pending_label:
+            mods = [it for it in pending_items if ("：" in it or ":" in it)]
+            if mods:
+                module_items = mods
+        # Redraw "首张主图模块化布局图" as a clean module schematic (no watermark)
+        # instead of embedding the raw reference screenshot.
+        if pending_label and "模块化布局图" in pending_label and pending_images and module_items:
+            real = [t for t in pending_images if t in blobs]
+            fallback = "".join(
+                f'<div class="image-holder">{image_tag(t, blobs, "模块化布局图")}</div>' for t in real
+            )
+            ml = module_layout(module_items, fallback)
+            rendered.append(f'<div class="text-block">{label_line(pending_label)}{ml}</div>')
+        else:
             rendered.append(grouped_text_block(pending_label, pending_items, pending_images, blobs, half_images, pending_metric))
-            pending_label = None
-            pending_metric = None
-            pending_items = []
-            pending_images = []
+        pending_label = None
+        pending_metric = None
+        pending_items = []
+        pending_images = []
 
     for block in blocks:
         if isinstance(block, TableBlock):
@@ -866,10 +1035,11 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
         if block.images and not block.text:
             flush_plain()
             flush_bracket()
-            if pending_label is not None:
-                pending_images.extend(block.images)
-            else:
-                rendered.append(grouped_text_block(None, [], block.images, blobs, half_images))
+            # Always accumulate into pending_images (even with no label) so that
+            # consecutive image-only paragraphs land in ONE module and share a
+            # single uniform width class, instead of each becoming its own
+            # natural-width block.
+            pending_images.extend(block.images)
             continue
 
         text = block.text
@@ -902,7 +1072,13 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
 
         if pending_label is not None:
             pending_items.append(text)
-        elif is_intro and not lead_done and not rendered and not plain_items and not bracket_items:
+            continue
+
+        # No active label: flush any loose accumulated images first so they keep
+        # their original position relative to the text that follows.
+        flush_label()
+
+        if is_intro and not lead_done and not rendered and not plain_items and not bracket_items:
             rendered.append(lead_block(text))
             lead_done = True
         elif COLON_PREFIX_RE.match(text):
@@ -962,6 +1138,30 @@ def render_card(title: str, body: str, num: int | None) -> str:
     return f'<section class="{card_class}">{section_head(num, title)}<div class="gray-panel spec-text">{body}</div></section>'
 
 
+def download_runtime() -> str:
+    """A floating "下载整页图片" button that rasterises the whole poster to one
+    PNG via an embedded html2canvas, so the page stays self-contained/offline.
+    Scale is clamped so the canvas height stays under the browser limit."""
+    if not DEFAULT_H2C.exists():
+        return ""
+    lib = DEFAULT_H2C.read_text(encoding="utf-8")
+    return (
+        '<button id="dl-page-btn" class="dl-page-btn" data-html2canvas-ignore>下载整页图片</button>\n'
+        f"<script>{lib}</script>\n"
+        "<script>(function(){var b=document.getElementById('dl-page-btn');"
+        "if(!b||!window.html2canvas)return;"
+        "b.addEventListener('click',function(){var p=document.querySelector('.poster');if(!p)return;"
+        "var t=b.textContent;b.textContent='生成中…';b.disabled=true;"
+        "var h=p.scrollHeight,s=Math.min(2,Math.max(0.3,32000/h));"
+        "html2canvas(p,{scale:s,backgroundColor:'#dcedff',useCORS:true,logging:false,"
+        "windowWidth:p.scrollWidth,windowHeight:h}).then(function(c){c.toBlob(function(bl){"
+        "var a=document.createElement('a');a.href=URL.createObjectURL(bl);"
+        "a.download=(document.title||'page')+'.png';document.body.appendChild(a);a.click();a.remove();"
+        "setTimeout(function(){URL.revokeObjectURL(a.href);},1500);b.textContent=t;b.disabled=false;},'image/png');"
+        "}).catch(function(e){console.error(e);b.textContent='下载失败，重试';b.disabled=false;});});})();</script>"
+    )
+
+
 def render_html(docx_path: Path, design_path: Path, font_path: Path | None, updated_label: str, editable: bool) -> str:
     doc = Document(docx_path)
     blobs = image_target_to_blob(doc)
@@ -1004,6 +1204,7 @@ def render_html(docx_path: Path, design_path: Path, font_path: Path | None, upda
   </section>
   {''.join(cards)}
 </main>
+{download_runtime()}
 {editable_runtime}
 </body>
 </html>
