@@ -364,9 +364,16 @@ body.editing [contenteditable="true"] {
 .poster.auto-doc .spec-cell { font-size: 24px; }
 .poster.auto-doc .ba-head { font-size: 27px; }
 .poster.auto-doc .ba-text { font-size: 23px; }
-.poster.auto-doc .metric-emphasis { font-size: 36px; }
-.poster.auto-doc .metric-emphasis .metric-value { font-size: 60px; }
-.poster.auto-doc .metric-emphasis .metric-arrow { height: 51px; }
+/* Metric bar is NOT scaled with the body copy — it keeps the original
+   24/40px text and 34px arrow defined above. */
+
+/* Hero text scaled ~1.5x as well: main title, OPERATION STANDARDS, date.
+   The hero grows taller so the enlarged title, rule and date keep their
+   spacing and the white rule is not covered by the first card. */
+.poster.auto-doc .hero { height: 600px; }
+.poster.auto-doc .hero h1 { font-size: 102px; max-width: 1140px; }
+.poster.auto-doc .hero-mark { font-size: 21px; }
+.poster.auto-doc .updated { font-size: 27px; }
 
 /* 2) List dots scaled (~11 -> 16) */
 .poster.auto-doc .red-list li::before,
