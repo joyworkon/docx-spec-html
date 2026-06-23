@@ -202,29 +202,39 @@ body { background: #737373; }
   object-fit: contain;
 }
 
-/* Conversion-metric green emphasis bar */
+/* Conversion-metric emphasis bar: white fill, green outline, centred.
+   Black label + green "+X%" with an up-arrow. */
 .poster.auto-doc .metric-emphasis {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 12px;
   width: 100%;
   margin: 0;
-  padding: 16px 24px;
-  border: 1px solid #18a558;
-  border-radius: 10px;
-  background: #e8f7ee;
-  color: #0f7a3d;
-  font-size: 20px;
-  font-weight: 600;
+  padding: 18px 24px;
+  border: 2px solid #47b250;
+  border-radius: 14px;
+  background: #fff;
+  font-size: 24px;
+  font-weight: 700;
 }
-/* The small label and the big number sit on the same baseline (bottom-aligned);
-   the whole line stays vertically centred in the bar via symmetric padding. */
-.poster.auto-doc .metric-emphasis .metric-text { line-height: 1; }
+.poster.auto-doc .metric-emphasis .metric-text {
+  color: #111;
+  line-height: 1;
+}
 .poster.auto-doc .metric-emphasis .metric-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #47b250;
   font-size: 40px;
   font-weight: 800;
   line-height: 1;
+}
+.poster.auto-doc .metric-emphasis .metric-arrow {
+  height: 34px;
+  width: auto;
+  display: block;
 }
 /* Inside a white module, leave room between the bar and the table below it. */
 .poster.auto-doc .text-block .metric-emphasis { margin: 0 0 12px; }
@@ -569,12 +579,24 @@ def is_conversion_metric(text: str) -> bool:
     return bool(CONVERSION_RE.fullmatch(clean_text(text)))
 
 
+METRIC_ARROW_SVG = (
+    '<svg class="metric-arrow" xmlns="http://www.w3.org/2000/svg" '
+    'viewBox="0 0 32.34917 40.82425" fill="none" aria-hidden="true">'
+    '<path d="M16.405537,0L1.1559057,14.706532L11.676984,15.342317Q11.316808,35.421619,0,40.824245'
+    'Q19.693825,39.944675,21.828087,15.110984L32.349167,15.74677L16.405537,0Z" fill="#47B250"/></svg>'
+)
+
+
 def metric_emphasis(text: str) -> str:
     cleaned = clean_text(text)
-    match = re.match(r"^(.*?[+＋]\s*)(\d+(?:\.\d+)?\s*%)$", cleaned)
-    if match:
-        head, value = match.group(1), match.group(2)
-        inner = f'<span class="metric-text">{esc(head)}</span><span class="metric-value">{esc(value)}</span>'
+    # Label stays black; the "+X%" (sign included) goes green with an up-arrow.
+    match = re.match(r"^(.*?)\s*([+＋]\s*\d+(?:\.\d+)?\s*%)$", cleaned)
+    if match and match.group(1).strip():
+        head, value = match.group(1).strip(), match.group(2)
+        inner = (
+            f'<span class="metric-text">{esc(head)}</span>'
+            f'<span class="metric-value">{esc(value)}{METRIC_ARROW_SVG}</span>'
+        )
     else:
         inner = f'<span class="metric-text">{esc(cleaned)}</span>'
     return f'<div class="metric-emphasis">{inner}</div>'
