@@ -341,6 +341,68 @@ body.editing [contenteditable="true"] {
   outline-offset: 3px;
   cursor: text;
 }
+
+/* ===== Card body copy scaled ~1.5x (to match the target screenshot) =====
+   Only the cards' body content grows; the hero and the title bar
+   (.section-head: chapter number, { 标题 }, INTRODUCTION) keep their sizes.
+   List dots, indents and module spacing scale with the text so proportions
+   stay balanced. Higher specificity (.poster.auto-doc .class) overrides the
+   §17 / base sizes above. */
+
+/* 1) Body font sizes */
+.poster.auto-doc .lead { font-size: 28px; }
+.poster.auto-doc .plain-block p { font-size: 28px; }
+.poster.auto-doc .red-list li,
+.poster.auto-doc .red-list b,
+.poster.auto-doc .red-list p { font-size: 28px; }
+.poster.auto-doc .label-line { font-size: 28px; }
+.poster.auto-doc .source-list li { font-size: 28px; }
+.poster.auto-doc .example-line { font-size: 27px; }
+.poster.auto-doc .caption-line { font-size: 26px; }
+.poster.auto-doc .doc-table th,
+.poster.auto-doc .doc-table td { font-size: 24px; }
+.poster.auto-doc .spec-cell { font-size: 24px; }
+.poster.auto-doc .ba-head { font-size: 27px; }
+.poster.auto-doc .ba-text { font-size: 23px; }
+.poster.auto-doc .metric-emphasis { font-size: 36px; }
+.poster.auto-doc .metric-emphasis .metric-value { font-size: 60px; }
+.poster.auto-doc .metric-emphasis .metric-arrow { height: 51px; }
+
+/* 2) List dots scaled (~11 -> 16) */
+.poster.auto-doc .red-list li::before,
+.poster.auto-doc .label-line::before,
+.poster.auto-doc .source-list li::before,
+.poster.auto-doc .red-list li > p:not(.sub-dot)::before,
+.poster.auto-doc .sub-dot::before {
+  width: 16px;
+  height: 16px;
+  top: 13px;
+  border-radius: 4px;
+}
+.poster.auto-doc .caption-line::before {
+  width: 16px;
+  height: 16px;
+  top: 11px;
+  border-radius: 4px;
+}
+
+/* 3) Indents scaled */
+.poster.auto-doc .red-list li,
+.poster.auto-doc .label-line,
+.poster.auto-doc .caption-line { padding-left: 38px; }
+.poster.auto-doc .source-list { margin-left: 42px; }
+.poster.auto-doc .sub-dot { padding-left: 42px; }
+.poster.auto-doc .caption-line.indent,
+.poster.auto-doc .image-holder.indent { margin-left: 42px; }
+
+/* 4) Module spacing scaled */
+.poster.auto-doc .gray-panel > * + * { margin-top: 27px; }
+.poster.auto-doc .text-block { padding: 33px 39px; }
+.poster.auto-doc .lead { margin-bottom: 33px; padding: 36px 51px; }
+.poster.auto-doc .red-list li { margin-bottom: 24px; }
+.poster.auto-doc .spec-text .red-list li { margin-bottom: 27px; }
+.poster.auto-doc .label-line { margin-bottom: 15px; }
+.poster.auto-doc .source-list li { margin-top: 18px; }
 """
 
 
