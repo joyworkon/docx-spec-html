@@ -165,6 +165,12 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
                 # Present after canonical rewrite (title prefix / chapter numeral
                 # / brace / colon normalization); not a real omission.
                 continue
+            # A label may be split into separate modules (e.g. "2.优化前后图 商详转化率+2%"
+            # becomes a "2.优化前后图" title plus a "商详转化率+2%" green metric bar).
+            # Pass when every whitespace-separated chunk is individually present.
+            chunks = [normalize_for_match(c) for c in text.split() if normalize_for_match(c)]
+            if len(chunks) >= 2 and all(c in normalized_visible for c in chunks):
+                continue
             missing.append(text)
         elif actual < expected:
             underrepresented.append({"text": text, "expected": expected, "actual": actual})
