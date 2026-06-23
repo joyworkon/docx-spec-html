@@ -372,7 +372,13 @@ body.editing [contenteditable="true"] {
    spacing and the white rule is not covered by the first card. */
 .poster.auto-doc .hero { height: 600px; }
 .poster.auto-doc .hero h1 { font-size: 102px; max-width: 1140px; }
-.poster.auto-doc .hero-mark { font-size: 21px; }
+.poster.auto-doc .hero-mark {
+  font-size: 21px;
+  width: 232px;
+  height: 93px;
+  border-radius: 48px;
+  border-width: 2px;
+}
 .poster.auto-doc .updated { font-size: 27px; }
 
 /* 2) List dots scaled (~11 -> 16) */
