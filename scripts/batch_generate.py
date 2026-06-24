@@ -553,6 +553,17 @@ body.editing [contenteditable="true"] {
 .poster.auto-doc .spec-text .red-list li { margin-bottom: 27px; }
 .poster.auto-doc .label-line { margin-bottom: 15px; }
 .poster.auto-doc .source-list li { margin-top: 18px; }
+/* Content split off after a label's colon: aligned under the title text, no red
+   square, no pink bar, regular weight. */
+.poster.auto-doc .label-rest {
+  margin: 4px 0 0 38px;
+  font-size: 28px;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #333;
+}
+/* A colon-less label keeps the red square but no pink highlight bar. */
+.poster.auto-doc .label-plain { font-weight: 600; }
 """
 
 
@@ -609,7 +620,19 @@ EDITABLE_RUNTIME = """
 
 
 def label_line(text: str) -> str:
-    return f'<div class="label-line"><span class="label-text">{esc(text)}</span></div>'
+    """A red-square label. A colon means the run up to (and incl.) the first colon
+    is the TITLE — red square + pink highlight bar — and whatever follows the colon
+    is split off below it with no highlight. With no colon anywhere, it is just a
+    red square + plain text, no pink bar."""
+    t = clean_text(text)
+    cut = next((i + 1 for i, ch in enumerate(t) if ch in "：:"), -1)
+    if cut != -1:
+        prefix, rest = t[:cut], t[cut:].strip()
+        html = f'<div class="label-line"><span class="label-text">{esc(prefix)}</span></div>'
+        if rest:
+            html += f'<div class="label-rest">{esc(rest)}</div>'
+        return html
+    return f'<div class="label-line"><span class="label-plain">{esc(t)}</span></div>'
 
 
 def source_list(items: list) -> str:
@@ -1274,11 +1297,14 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
             pending_label = text
             pending_items = []
             pending_images = []
-        elif COLON_PREFIX_RE.match(text):
-            # A standalone "前缀：内容" line (no deeper children) → red-square item.
+        elif COLON_PREFIX_RE.match(text) or block.list_level is not None:
+            # A standalone "前缀：内容" line, OR any Word-bulleted line sitting
+            # directly under the chapter (e.g. 参数楼层&属性 的前两段) → red-square
+            # item. No colon ⇒ red square only, no pink bar.
             flush_plain()
             bracket_items.append(text)
         else:
+            # A plain unbulleted paragraph with no heading role → its own white box.
             flush_bracket()
             plain_items.append(text)
 
