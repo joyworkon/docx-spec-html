@@ -245,64 +245,54 @@ body { background: #737373; }
 /* Module-layout schematic: a clean redraw of the "首张主图模块化布局图"
    reference image (品牌 / 主要功能卖点 / 主品 / 赠品 / 物流质保 / 材质 / 营销卖点),
    keeping the original spatial arrangement but dropping the watermark. */
+/* 首张主图模块化布局重绘：黄底红框容器，内部按原图结构布局
+   (店铺名称 | 品牌LOGO 顶行；侧栏卖点 | 商品主图 中部；质保腰带 底部)。
+   每块用一种明显区分的颜色（底色/边框固定为黄/红，其余各异）。 */
 .poster.auto-doc .module-layout {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  max-width: 620px;        /* keep the original schematic's portrait proportion */
+  gap: 12px;
+  max-width: 560px;        /* roughly square, like the source schematic */
   margin: 0 auto;
-  background: #fff8e1;     /* light-yellow fill */
-  border: 2px solid #ff2b22;  /* red border */
-  border-radius: 12px;
-  padding: 22px;
+  background: #fff8e1;     /* fixed light-yellow fill */
+  border: 3px solid #ff2b22;  /* fixed red border */
+  border-radius: 14px;
+  padding: 16px;
 }
-.poster.auto-doc .module-layout > div { font-weight: 700; }
-.poster.auto-doc .ml-brand {
-  align-self: flex-start;
-  background: #f4a09c;
-  color: #7a1f1a;
-  padding: 14px 30px;
-  border-radius: 8px;
-  font-size: 22px;
-}
-.poster.auto-doc .ml-body {
-  display: grid;
-  grid-template-columns: 1.25fr 1fr;
-  gap: 14px;
-  align-items: stretch;
-}
-.poster.auto-doc .ml-col { display: flex; flex-direction: column; gap: 14px; }
-.poster.auto-doc .ml-feat {
-  flex: 1;
+.poster.auto-doc .module-layout div { font-weight: 700; }
+.poster.auto-doc .ml-top { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; }
+.poster.auto-doc .ml-mid { display: grid; grid-template-columns: 1fr 2fr; gap: 12px; }
+.poster.auto-doc .ml-top > div,
+.poster.auto-doc .ml-main,
+.poster.auto-doc .ml-foot {
   display: grid;
   place-items: center;
   text-align: center;
-  background: #b6e6bd;
-  color: #1f5a2a;
   border-radius: 10px;
-  padding: 22px 16px;
-  font-size: 21px;
-  line-height: 1.35;
+  padding: 18px 14px;
+  line-height: 1.3;
 }
-.poster.auto-doc .ml-product {
-  display: grid;
-  place-items: center;
-  text-align: center;
-  min-height: 360px;
-  background: #bcdcf2;
-  color: #1c4a73;
+.poster.auto-doc .ml-shop { background: #cfe6ff; color: #134a73; font-size: 22px; }   /* blue */
+.poster.auto-doc .ml-logo { background: #ffe0b3; color: #7a4a12; font-size: 22px; }   /* orange */
+.poster.auto-doc .ml-side {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  background: #d7f0d8;     /* green */
+  color: #1f5f2a;
   border-radius: 10px;
-  padding: 18px;
-  font-size: 24px;
-}
-.poster.auto-doc .ml-band {
-  background: #f7c98b;
-  color: #5a3d12;
-  border-radius: 8px;
-  padding: 22px;
+  padding: 18px 12px;
   text-align: center;
-  font-size: 26px;
+  font-size: 19px;
 }
+.poster.auto-doc .ml-main {
+  min-height: 300px;
+  background: #e7e0f5;     /* purple */
+  color: #3a2f78;
+  font-size: 34px;
+}
+.poster.auto-doc .ml-foot { background: #ffd6e0; color: #8a2741; font-size: 22px; }   /* pink */
 
 /* 主图视频示范 — pink play-button banner (text + hollow-triangle play icon) */
 .poster.auto-doc .video-demo {
@@ -505,6 +495,19 @@ body.editing [contenteditable="true"] {
    The hero grows taller so the enlarged title, rule and date keep their
    spacing and the white rule is not covered by the first card. */
 .poster.auto-doc .hero { height: 600px; }
+/* Clean hero background: solid red gradient — no grid texture, rings or dots. */
+.poster.auto-doc .hero {
+  background: linear-gradient(102deg, #ff3026, #ff1e16);
+}
+.poster.auto-doc .hero::before { display: none; }
+.poster.auto-doc .rings,
+.poster.auto-doc .ring { display: none; }
+/* Arrows rendered as inline SVG (not a CSS background image) so html2canvas
+   keeps them in the downloaded full-page PNG. */
+.poster.auto-doc .en-label span,
+.poster.auto-doc .hero-rule { background: none; }
+.poster.auto-doc .en-label span > svg,
+.poster.auto-doc .hero-rule > svg { display: block; width: 100%; height: 100%; }
 .poster.auto-doc .hero h1 { font-size: 102px; max-width: 1140px; }
 .poster.auto-doc .hero-mark {
   font-size: 21px;
@@ -777,6 +780,13 @@ def is_label(text: str) -> bool:
     return False
 
 
+def is_bare_heading(text: str) -> bool:
+    """A short standalone heading with no colon and no sentence punctuation, e.g.
+    補充規則 — it opens a red-square container for the deeper lines beneath it."""
+    t = clean_text(text)
+    return bool(t) and len(t) <= 10 and not re.search(r"[：:，。；！？,.!?]", t)
+
+
 def looks_like_image_title(text: str) -> bool:
     """A short noun-phrase line that titles the picture(s) right below it, e.g.
     搜索列表页展示 / 参数楼层商详页展示 / 商品参数展示 / 示例图。Used to lift such a line
@@ -854,6 +864,24 @@ METRIC_ARROW_SVG = (
     'viewBox="0 0 32.34917 40.82425" fill="none" aria-hidden="true">'
     '<path d="M16.405537,0L1.1559057,14.706532L11.676984,15.342317Q11.316808,35.421619,0,40.824245'
     'Q19.693825,39.944675,21.828087,15.110984L32.349167,15.74677L16.405537,0Z" fill="#47B250"/></svg>'
+)
+
+# The connected line+hook arrows rendered as INLINE svg (not CSS background) so
+# html2canvas keeps them in the downloaded PNG. en-label = red, pointing left
+# (flipped); hero-rule = white, pointing right.
+_ARROW_PATH = (
+    "M130.44582 9.5L0 9.5L0 12.5L138 12.5L138.20905 9.5146379Q137.62546 9.4325085 136.69609 9.1682091"
+    "Q134.81464 8.6331568 133.25896 7.7437816Q128.52896 5.0396996 128.52898 -2.420493e-06"
+    "L125.52898 2.420493e-06Q125.52896 3.7219667 127.51295 6.5661678Q128.67047 8.2256107 130.44582 9.5Z"
+)
+EN_LABEL_ARROW_SVG = (
+    '<svg viewBox="0 0 138.209 12.5" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" '
+    'aria-hidden="true"><g transform="translate(138.209,0) scale(-1,1)">'
+    f'<path d="{_ARROW_PATH}" fill="#ff2b22"/></g></svg>'
+)
+HERO_RULE_ARROW_SVG = (
+    '<svg viewBox="0 0 138.209 12.5" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" '
+    f'aria-hidden="true"><path d="{_ARROW_PATH}" fill="#ffffff"/></svg>'
 )
 
 
@@ -937,21 +965,28 @@ def module_layout(items: list[str], fallback: str) -> str:
         return None
 
     brand = find("品牌", "logo", "LOGO")
-    band = find("腰带", "营销", "活动")
-    product = find("产品展示", "右侧产品", "实物", "产品图", "产品")
+    band = find("腰带", "营销", "活动", "质保", "正品", "承诺", "保障", "售后")
+    product = find("产品展示", "右侧产品", "实物", "产品图", "主图", "产品")
     used = {x for x in (brand, band, product) if x}
     features = [n for n in names if n not in used] or ["核心卖点"]
 
     def blk(cls: str, text: str) -> str:
         return f'<div class="{cls}">{esc(text)}</div>'
 
-    feats = "".join(blk("ml-feat", f) for f in features)
-    body = f'<div class="ml-col">{feats}</div>{blk("ml-product", product or "产品展示")}'
-    out = blk("ml-brand", f"{brand or '品牌'} LOGO")
-    out += f'<div class="ml-body">{body}</div>'
-    if band:
-        out += blk("ml-band", band)
-    return f'<div class="module-layout">{out}</div>'
+    side = "".join(blk("ml-line", f) for f in features)
+    return (
+        '<div class="module-layout">'
+        '<div class="ml-top">'
+        + blk("ml-shop", "店铺名称")
+        + blk("ml-logo", f"{brand or '品牌'}LOGO")
+        + "</div>"
+        '<div class="ml-mid">'
+        + f'<div class="ml-side">{side}</div>'
+        + blk("ml-main", product or "商品主图")
+        + "</div>"
+        + blk("ml-foot", band or "质保承诺 · 正品保证")
+        + "</div>"
+    )
 
 
 GENERIC_EXAMPLE_RE = re.compile(r"^示例图?\s*$")
@@ -1122,7 +1157,25 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
         pending_items = []
         pending_images = []
 
-    for block in blocks:
+    def deeper_follows(idx: int, cur_level: int | None) -> bool:
+        """True when the next content line is one hierarchy step deeper than the
+        current line — i.e. the current line is a heading that opens a grey
+        container. A deeper Word list level, a manual ①②③, or an image all count;
+        a same/shallower level or an end means the current line is a sibling item."""
+        base = -1 if cur_level is None else cur_level
+        for nb in blocks[idx + 1:]:
+            if isinstance(nb, TableBlock):
+                return False
+            if not nb.text:
+                if nb.images:
+                    return True
+                continue
+            if CIRCLED_RE.match(nb.text):
+                return True
+            return nb.list_level is not None and nb.list_level > base
+        return False
+
+    for idx, block in enumerate(blocks):
         if isinstance(block, TableBlock):
             flush_plain()
             flush_bracket()
@@ -1153,10 +1206,6 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
         if not text:
             continue
 
-        # Never render a bare 示例 / 示例图 line; pictures carry their own title.
-        if is_generic_example_label(text) and not block.images:
-            continue
-
         if is_conversion_metric(text):
             flush_plain()
             flush_bracket()
@@ -1177,7 +1226,10 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
             bracket_items.append(text)
             continue
 
-        if is_label(text):
+        # A colon label opens a new red container — UNLESS it is itself a Word list
+        # item nested inside an already-open container (e.g. 性能及其他利益点： at
+        # ilvl=0 under 2.详细规范：), in which case it stays a grey sub-item below.
+        if is_label(text) and not (pending_label is not None and block.list_level is not None):
             flush_plain()
             flush_bracket()
             flush_label()
@@ -1188,34 +1240,42 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
             pending_images = []
             continue
 
-        # A new short title line after a finished image group starts a fresh
-        # titled image module (e.g. 参数楼层商详页展示 → img → 商品参数展示 → img).
-        if pending_label is not None and pending_images and looks_like_image_title(text):
-            flush_label()
-            pending_label = text
-            continue
-
-        # Hierarchy from the source: a Word list item (ilvl set) or a manual ①②③
-        # enumeration is a grey sub-detail (level by ilvl), never a red heading.
-        if block.list_level is not None or CIRCLED_RE.match(text):
+        # A short noun-phrase line that titles the picture(s) right below it
+        # (搜索列表页展示 / 参数楼层商详页展示 / 商品参数展示) opens a fresh red-square
+        # image module, breaking any container or image group currently open.
+        if block.list_level is None and looks_like_image_title(text) and deeper_follows(idx, None):
             flush_plain()
             flush_bracket()
+            flush_label()
+            pending_label = text
+            pending_items = []
+            pending_images = []
+            continue
+
+        # Inside an open red container, every line is a grey sub-detail whose
+        # indent comes straight from its Word level (ilvl); an ilvl=None line sits
+        # at level 0.
+        if pending_label is not None:
             level = block.list_level if block.list_level is not None else 0
             pending_items.append((level, text))
             continue
 
-        # ilvl=None line nested under an active label is a level-0 grey sub-item.
-        if pending_label is not None:
-            pending_items.append((0, text))
-            continue
-
-        # Top-level (ilvl=None, no active label) line.
+        # No container open: this line is top-level.
         flush_label()
         if is_intro and not lead_done and not rendered and not plain_items and not bracket_items:
             rendered.append(lead_block(text))
             lead_done = True
+        elif (block.list_level is None and (is_bare_heading(text) or COLON_PREFIX_RE.match(text))
+              and deeper_follows(idx, None)):
+            # An ilvl=None heading (補充規則, or 前缀：… with deeper lines under it)
+            # opens a red container; the deeper lines become grey sub-items.
+            flush_plain()
+            flush_bracket()
+            pending_label = text
+            pending_items = []
+            pending_images = []
         elif COLON_PREFIX_RE.match(text):
-            # "前缀：内容" heading at top level → red-square + pink-highlight item.
+            # A standalone "前缀：内容" line (no deeper children) → red-square item.
             flush_plain()
             bracket_items.append(text)
         else:
@@ -1244,7 +1304,7 @@ def section_head(num: int | None, title: str) -> str:
         '<div class="section-head spec-head">'
         f"{chapter}"
         f"<h2>{{ {esc(title)} }}</h2>"
-        '<div class="en-label"><strong>INTRODUCTION</strong><span></span></div>'
+        f'<div class="en-label"><strong>INTRODUCTION</strong><span>{EN_LABEL_ARROW_SVG}</span></div>'
         "</div>"
     )
 
@@ -1326,15 +1386,10 @@ def render_html(docx_path: Path, design_path: Path, font_path: Path | None, upda
 <body>
 <main class="poster auto-doc">
   <section class="hero">
-    <div class="rings">
-      <div class="ring ring-one"></div>
-      <div class="ring ring-two"></div>
-      <div class="ring ring-three"></div>
-    </div>
     <h1>{hero_title_html(title)}</h1>
     <p class="updated">{esc(updated_label)}</p>
     <div class="hero-mark">OPERATION<br>STANDARDS</div>
-    <div class="hero-rule"></div>
+    <div class="hero-rule">{HERO_RULE_ARROW_SVG}</div>
   </section>
   {''.join(cards)}
 </main>
