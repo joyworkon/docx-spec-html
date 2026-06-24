@@ -112,6 +112,7 @@ def structural_checks(html_text: str, visible: str, expected_images: int) -> tup
     en_label_count = count_class(html_text, "en-label")
     label_line_count = count_class(html_text, "label-line")
     label_text_count = count_class(html_text, "label-text")
+    label_plain_count = count_class(html_text, "label-plain")
     text_block_count = count_class(html_text, "text-block")
     caption_card_count = count_class(html_text, "caption-image-card")
     image_holder_count = count_class(html_text, "image-holder")
@@ -126,7 +127,8 @@ def structural_checks(html_text: str, visible: str, expected_images: int) -> tup
         and all(re.fullmatch(r"\{ [^{}]+ \}", text) for text in h2_texts),
         "section_heads_include_spec_head_and_label": section_head_count > 0
         and section_head_count == spec_head_count == en_label_count,
-        "label_lines_wrap_label_text": label_line_count == 0 or label_line_count == label_text_count,
+        "label_lines_wrap_label_text": label_line_count == 0
+        or label_line_count == label_text_count + label_plain_count,
         "white_text_blocks_used_for_label_groups": label_line_count < 6 or text_block_count > 0,
         "image_cards_use_image_holders": expected_images == 0 or image_holder_count >= expected_images,
         "caption_images_keep_text_below_images": not formula_caption_like or caption_card_count > 0,
@@ -138,7 +140,7 @@ def structural_checks(html_text: str, visible: str, expected_images: int) -> tup
     messages = {
         "section_title_single_spaced_braces": "Section h2 titles must be exactly `{ 标题 }`; double braces or missing inner spaces are not allowed.",
         "section_heads_include_spec_head_and_label": "Every section-head, including overview cards, must use spec-head and include the right INTRODUCTION label.",
-        "label_lines_wrap_label_text": "Every label-line must contain label-text so the pink highlight stays behind text only.",
+        "label_lines_wrap_label_text": "Every label-line must contain label-text (colon title, pink bar) or label-plain (colon-less, no bar).",
         "white_text_blocks_used_for_label_groups": "Grey-panel label groups must be wrapped in white text-block modules instead of bare labels/lists.",
         "image_cards_use_image_holders": "Every DOCX image should be placed inside an image-holder so it keeps proportion and spacing.",
         "caption_images_keep_text_below_images": "Formula or caption text after an image must use caption-image-card, with image above and caption below.",
