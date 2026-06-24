@@ -85,6 +85,9 @@ def normalize_for_match(value: str) -> str:
     value = re.sub(r"^[一二三四五六七八九十]+[、.．]", "", value)
     value = re.sub(r"^第[一二三四五六七八九十0-9]+[章节部分]", "", value)
     value = value.replace("{", "").replace("}", "")
+    # A 「（…+X%）」title metric is split into the h2 + a separate green bar, and
+    # other （…）asides may move; ignore parentheses when matching.
+    value = re.sub(r"[（）()]", "", value)
     return re.sub(r"[：:\s]", "", value)
 
 
@@ -165,6 +168,15 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
                 # Present after canonical rewrite (title prefix / chapter numeral
                 # / brace / colon normalization); not a real omission.
                 continue
+            # A chapter title's 「（…X%）」metric is split into the h2 title plus a
+            # green bar (separated by the INTRODUCTION label), so the full string is
+            # never contiguous. Pass when the title core and the metric each appear.
+            mt = re.match(r"^(.*?)[（(]\s*([^（）()]*\d+(?:\.\d+)?\s*%)\s*[)）]$", text)
+            if mt:
+                core_n = normalize_for_match(mt.group(1))
+                metric_n = normalize_for_match(mt.group(2))
+                if core_n and metric_n and core_n in normalized_visible and metric_n in normalized_visible:
+                    continue
             # A label may be split into separate modules (e.g. "2.优化前后图 商详转化率+2%"
             # becomes a "2.优化前后图" title plus a "商详转化率+2%" green metric bar).
             # Pass when every whitespace-separated chunk is individually present.

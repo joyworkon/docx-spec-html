@@ -651,6 +651,25 @@ def document_uses_heading_styles(blocks: list[ParagraphBlock | TableBlock]) -> b
     return False
 
 
+CHAPTER_LABEL_SUFFIXES = ("展示", "示例", "布局", "流程", "说明", "组合")
+TITLE_PAREN_RE = re.compile(r"[（(][^（）()]*[)）]\s*$")
+TITLE_METRIC_RE = re.compile(r"[（(]\s*([^（）()]*?\d+(?:\.\d+)?\s*%)\s*[)）]\s*$")
+
+
+def section_core(text: str) -> str:
+    """Heading text with a trailing （…）parenthetical removed, for detection."""
+    return TITLE_PAREN_RE.sub("", text).strip()
+
+
+def section_title_metric(text: str) -> str | None:
+    """A 「（…转化率提升+X%）」title suffix → its metric string for a green bar.
+    A missing plus sign after 提升/增长 is normalised in so it renders green."""
+    m = TITLE_METRIC_RE.search(text)
+    if not m:
+        return None
+    return clean_text(m.group(1))  # keep source text verbatim (no injected +)
+
+
 def is_section_heading(block: ParagraphBlock, heading_styles_present: bool = False) -> bool:
     text = block.text
     if not text or block.images:
@@ -677,8 +696,15 @@ def is_section_heading(block: ParagraphBlock, heading_styles_present: bool = Fal
         return False
     if re.match(r"^[0-9]{1,2}[.、．]\s*[^：:]{1,24}$", text):
         return True
+    core = section_core(text)
+    # Display / example labels (参数楼层商详页展示, 商品参数展示, 搜索列表页展示…)
+    # are in-chapter content, never their own card.
+    if core.endswith(CHAPTER_LABEL_SUFFIXES):
+        return False
     top_level_prefixes = ("整体规范", "主图", "主图视频", "长标题", "短标题", "卖点", "参数楼层", "属性", "图文详情")
-    if text.startswith(top_level_prefixes) and len(text) <= 12 and "：" not in text and ":" not in text:
+    # Match on the core (trailing （…+X%）metric stripped) so chapters like
+    # 长标题（转化率提升+0.42%）are still recognised despite the suffix.
+    if core.startswith(top_level_prefixes) and len(core) <= 12 and "：" not in core and ":" not in core:
         return True
     return False
 
@@ -689,6 +715,7 @@ def clean_section_title(text: str) -> str:
     cleaned = re.sub(r"^[（(][一二三四五六七八九十0-9]+[）)]\s*", "", cleaned)
     cleaned = re.sub(r"^[一二三四五六七八九十]+[、.．]\s*", "", cleaned)
     cleaned = re.sub(r"^第[一二三四五六七八九十0-9]+[章节部分][:：、.．\s]*", "", cleaned)
+    cleaned = TITLE_METRIC_RE.sub("", cleaned).strip()  # drop only a （…X%）metric, keep asides like （建议方向）
     cleaned = cleaned.rstrip("：:").strip()
     return cleaned or text.strip()
 
@@ -716,19 +743,21 @@ def is_label(text: str) -> bool:
 def split_sections(blocks: list[ParagraphBlock | TableBlock]) -> tuple[str, list[tuple[str, list[ParagraphBlock | TableBlock]]]]:
     first_text_index = next((i for i, block in enumerate(blocks) if isinstance(block, ParagraphBlock) and block.text), None)
     if first_text_index is None:
-        return "未命名规范", [("整体规范综述", blocks)]
+        return "未命名规范", [("整体规范综述", blocks, None)]
     title = strip_title_prefix(blocks[first_text_index].text)  # type: ignore[union-attr]
     body = blocks[first_text_index + 1 :]
     heading_styles_present = document_uses_heading_styles(blocks)
-    sections: list[tuple[str, list[ParagraphBlock | TableBlock]]] = []
+    sections: list[tuple[str, list[ParagraphBlock | TableBlock], str | None]] = []
     current_title = "整体规范综述"
+    current_metric: str | None = None
     current_blocks: list[ParagraphBlock | TableBlock] = []
 
     for block in body:
         if isinstance(block, ParagraphBlock) and is_section_heading(block, heading_styles_present):
             if current_blocks:
-                sections.append((current_title, current_blocks))
+                sections.append((current_title, current_blocks, current_metric))
             current_title = clean_section_title(block.text)
+            current_metric = section_title_metric(block.text)
             current_blocks = []
         elif (
             isinstance(block, ParagraphBlock)
@@ -742,9 +771,9 @@ def split_sections(blocks: list[ParagraphBlock | TableBlock]) -> tuple[str, list
         else:
             current_blocks.append(block)
     if current_blocks:
-        sections.append((current_title, current_blocks))
+        sections.append((current_title, current_blocks, current_metric))
     if not sections:
-        sections.append(("整体规范综述", body))
+        sections.append(("整体规范综述", body, None))
     return title, sections
 
 
@@ -783,7 +812,7 @@ METRIC_ARROW_SVG = (
 def metric_emphasis(text: str) -> str:
     cleaned = clean_text(text)
     # Label stays black; the "+X%" (sign included) goes green with an up-arrow.
-    match = re.match(r"^(.*?)\s*([+＋]\s*\d+(?:\.\d+)?\s*%)$", cleaned)
+    match = re.match(r"^(.*?)([+＋]?\s*\d+(?:\.\d+)?\s*%)$", cleaned)
     if match and match.group(1).strip():
         head, value = match.group(1).strip(), match.group(2)
         inner = (
@@ -1135,9 +1164,10 @@ def normalize_update_label(value: str | None, docx_path: Path | None = None) -> 
     return f"更新日期 {text}"
 
 
-def render_card(title: str, body: str, num: int | None) -> str:
+def render_card(title: str, body: str, num: int | None, metric: str | None = None) -> str:
     card_class = "card intro-card" if num is None else "card spec-card"
-    return f'<section class="{card_class}">{section_head(num, title)}<div class="gray-panel spec-text">{body}</div></section>'
+    bar = metric_emphasis(metric) if metric else ""
+    return f'<section class="{card_class}">{section_head(num, title)}<div class="gray-panel spec-text">{bar}{body}</div></section>'
 
 
 def download_runtime() -> str:
@@ -1171,7 +1201,7 @@ def render_html(docx_path: Path, design_path: Path, font_path: Path | None, upda
     css = extract_css(design_path, font_path)
     cards: list[str] = []
     chapter = 1
-    for section_title, section_blocks in sections:
+    for section_title, section_blocks, section_metric in sections:
         is_intro = section_title == "整体规范综述" and not cards
         half_images = "图文详情" in section_title
         body = render_section_blocks(
@@ -1180,7 +1210,7 @@ def render_html(docx_path: Path, design_path: Path, font_path: Path | None, upda
         if is_intro:
             cards.append(render_card(section_title, body, None))
         else:
-            cards.append(render_card(section_title, body, chapter))
+            cards.append(render_card(section_title, body, chapter, section_metric))
             chapter += 1
     editable_runtime = EDITABLE_RUNTIME if editable else ""
     return f"""<!doctype html>
