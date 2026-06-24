@@ -34,6 +34,7 @@ class ParagraphBlock:
     text: str
     images: list[str]
     style: str
+    list_level: int | None = None  # Word numbering level (ilvl); None = not a list item
 
 
 @dataclass
@@ -57,6 +58,25 @@ def slugify(value: str) -> str:
     return value[:80] or "docx"
 
 
+def paragraph_list_level(paragraph: Paragraph) -> int | None:
+    """Word numbering level (w:numPr/w:ilvl) for the paragraph, or None when the
+    paragraph is not part of a list. This is the source's own hierarchy signal:
+    None = heading/top level, 0 = first list level, 1+ = nested sub-levels."""
+    pPr = paragraph._p.pPr
+    if pPr is None:
+        return None
+    numPr = pPr.find(qn("w:numPr"))
+    if numPr is None:
+        return None
+    ilvl = numPr.find(qn("w:ilvl"))
+    if ilvl is None:
+        return 0
+    try:
+        return int(ilvl.get(qn("w:val")))
+    except (TypeError, ValueError):
+        return 0
+
+
 def iter_blocks(doc: DocumentObject) -> list[ParagraphBlock | TableBlock]:
     blocks: list[ParagraphBlock | TableBlock] = []
     for child in doc.element.body.iterchildren():
@@ -65,7 +85,11 @@ def iter_blocks(doc: DocumentObject) -> list[ParagraphBlock | TableBlock]:
             text = clean_text(paragraph.text)
             images = paragraph_images(doc, paragraph)
             if text or images:
-                blocks.append(ParagraphBlock(text=text, images=images, style=paragraph.style.name if paragraph.style else ""))
+                blocks.append(ParagraphBlock(
+                    text=text, images=images,
+                    style=paragraph.style.name if paragraph.style else "",
+                    list_level=paragraph_list_level(paragraph),
+                ))
         elif isinstance(child, CT_Tbl):
             blocks.append(TableBlock(Table(child, doc)))
     return blocks
@@ -194,6 +218,12 @@ body { background: #737373; }
    aligned with .source-list (28px). */
 .poster.auto-doc .caption-line.indent { margin-left: 28px; }
 .poster.auto-doc .image-holder.indent { margin-left: 28px; }
+/* Third hierarchy level (Word ilvl>=1): deeper indent + hollow grey square. */
+.poster.auto-doc .source-list li.deep { margin-left: 28px; }
+.poster.auto-doc .source-list li.deep::before {
+  background: transparent;
+  border: 2px solid #c9c9c9;
+}
 
 /* Half-page-width images (used in 图文详情) */
 .poster.auto-doc .half-image .doc-image {
@@ -218,7 +248,7 @@ body { background: #737373; }
 .poster.auto-doc .module-layout {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   max-width: 620px;        /* keep the original schematic's portrait proportion */
   margin: 0 auto;
   background: #fff8e1;     /* light-yellow fill */
@@ -226,7 +256,7 @@ body { background: #737373; }
   border-radius: 12px;
   padding: 22px;
 }
-.poster.auto-doc .module-layout > * { font-weight: 700; }
+.poster.auto-doc .module-layout > div { font-weight: 700; }
 .poster.auto-doc .ml-brand {
   align-self: flex-start;
   background: #f4a09c;
@@ -235,66 +265,61 @@ body { background: #737373; }
   border-radius: 8px;
   font-size: 22px;
 }
-.poster.auto-doc .ml-frame {
-  position: relative;
-  background: #b6e6bd;
-  border-radius: 12px;
-  padding: 24px 22px 96px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 18px;
-  min-height: 420px;
+.poster.auto-doc .ml-body {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  gap: 14px;
+  align-items: stretch;
 }
-.poster.auto-doc .ml-band {
-  width: 100%;
-  background: #f7c98b;
-  color: #5a3d12;
-  border-radius: 8px;
-  padding: 20px;
-  text-align: center;
-  font-size: 26px;
-}
-.poster.auto-doc .ml-sub {
-  background: #efe6a6;
-  color: #5a4d12;
-  border-radius: 22px;
-  padding: 12px 30px;
-  font-size: 22px;
-}
-.poster.auto-doc .ml-center {
+.poster.auto-doc .ml-col { display: flex; flex-direction: column; gap: 14px; }
+.poster.auto-doc .ml-feat {
   flex: 1;
   display: grid;
   place-items: center;
   text-align: center;
+  background: #b6e6bd;
   color: #1f5a2a;
-  font-size: 26px;
+  border-radius: 10px;
+  padding: 22px 16px;
+  font-size: 21px;
+  line-height: 1.35;
 }
-.poster.auto-doc .ml-corner {
-  position: absolute;
-  bottom: 22px;
-  max-width: 32%;
-  padding: 14px 18px;
-  border-radius: 8px;
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 1.4;
-}
-.poster.auto-doc .ml-gift { left: 22px; background: #f6c0d0; color: #7a2447; }
-.poster.auto-doc .ml-logi { right: 22px; background: #f4b78a; color: #6e3b13; text-align: right; }
-.poster.auto-doc .ml-bottom {
+.poster.auto-doc .ml-product {
   display: grid;
-  grid-template-columns: 1fr 3fr;
-  gap: 12px;
-}
-.poster.auto-doc .ml-bottom > div {
-  border-radius: 8px;
-  padding: 24px;
+  place-items: center;
   text-align: center;
+  min-height: 360px;
+  background: #bcdcf2;
+  color: #1c4a73;
+  border-radius: 10px;
+  padding: 18px;
   font-size: 24px;
 }
-.poster.auto-doc .ml-material { background: #bcdcf2; color: #1c4a73; }
-.poster.auto-doc .ml-market { background: #cfc9ee; color: #3a2f78; }
+.poster.auto-doc .ml-band {
+  background: #f7c98b;
+  color: #5a3d12;
+  border-radius: 8px;
+  padding: 22px;
+  text-align: center;
+  font-size: 26px;
+}
+
+/* 主图视频示范 — pink play-button banner (text + hollow-triangle play icon) */
+.poster.auto-doc .video-demo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 40px 24px;
+  border-radius: 10px;
+  background: #fbe2ec;
+}
+.poster.auto-doc .video-demo .vd-text {
+  font-size: 30px;
+  font-weight: 700;
+  color: #444;
+}
+.poster.auto-doc .video-demo .vd-icon { width: 52px; height: 52px; display: block; }
 
 /* Conversion-metric emphasis bar: white fill, green outline, centred.
    Black label + green "+X%" with an up-arrow. */
@@ -584,9 +609,17 @@ def label_line(text: str) -> str:
     return f'<div class="label-line"><span class="label-text">{esc(text)}</span></div>'
 
 
-def source_list(items: list[str]) -> str:
-    body = "".join(f"<li>{emphasize_prefix(esc(item))}</li>" for item in items if clean_text(item))
-    return f'<ul class="source-list">{body}</ul>' if body else ""
+def source_list(items: list) -> str:
+    """items may be plain strings (grey level-0) or (level, text) tuples, where
+    level>=1 renders as a deeper hollow-square sub-item."""
+    rows = []
+    for it in items:
+        level, text = it if isinstance(it, tuple) else (0, it)
+        if not clean_text(text):
+            continue
+        cls = ' class="deep"' if level and level >= 1 else ""
+        rows.append(f"<li{cls}>{emphasize_prefix(esc(text))}</li>")
+    return f'<ul class="source-list">{"".join(rows)}</ul>' if rows else ""
 
 
 def emphasize_prefix(text: str) -> str:
@@ -731,13 +764,27 @@ SCREEN_LABEL_RE = re.compile(r"^第\s*[0-9一二三四五六七八九十]+(?:\s*
 def is_label(text: str) -> bool:
     if not text or len(text) > 40:
         return False
-    if text.endswith(("：", ":")):
+    # A standalone "XXX：" label, allowing a trailing aside like 卖点示例组合：（无优先级）.
+    if re.sub(r"[（(][^（）()]*[)）]\s*$", "", text).strip().endswith(("：", ":")):
         return True
     if re.match(r"^[0-9]{1,2}[.、．]", text):
-        return True
+        # A numbered line is a label only when it's a title (no sentence
+        # punctuation). A numbered sentence ("1、商品品牌…一致。") is a list item.
+        body = re.sub(r"^[0-9]{1,2}[.、．]\s*", "", text)
+        return not re.search(r"[，。；！？,;]", body)
     if SCREEN_LABEL_RE.match(text):
         return True
     return False
+
+
+def looks_like_image_title(text: str) -> bool:
+    """A short noun-phrase line that titles the picture(s) right below it, e.g.
+    搜索列表页展示 / 参数楼层商详页展示 / 商品参数展示 / 示例图。Used to lift such a line
+    into the image's red-square label instead of leaving it as loose body text."""
+    t = clean_text(text)
+    if not t or len(t) > 16 or re.search(r"[，。！？,!?]", t):
+        return False
+    return t.endswith(("展示", "示例", "示范", "图", "流程", "说明")) or t.endswith(("：", ":")) or len(t) <= 8
 
 
 def split_sections(blocks: list[ParagraphBlock | TableBlock]) -> tuple[str, list[tuple[str, list[ParagraphBlock | TableBlock]]]]:
@@ -778,6 +825,7 @@ def split_sections(blocks: list[ParagraphBlock | TableBlock]) -> tuple[str, list
 
 
 BRACKET_RE = re.compile(r"^\s*(【[^】]+】)\s*(.*)$")
+CIRCLED_RE = re.compile(r"^\s*[①②③④⑤⑥⑦⑧⑨⑩⑪⑫]")
 CONVERSION_RE = re.compile(r"^[一-龥A-Za-z·]{2,12}\s*[+＋]\s*\d+(?:\.\d+)?\s*%$")
 # "前缀：内容" lead-in, e.g. 总结：…/字数范围：…/卖点建议顺序：… — gets a red square + pink highlight.
 COLON_PREFIX_RE = re.compile(r"^([^：:\n]{1,18}[：:])(.+)$")
@@ -824,6 +872,21 @@ def metric_emphasis(text: str) -> str:
     return f'<div class="metric-emphasis">{inner}</div>'
 
 
+VIDEO_DEMO_RE = re.compile(r"主图视频示范|视频播放按钮|播放按钮")
+
+
+def video_demo_box() -> str:
+    """A 主图视频示范 banner: bold dark-grey label + a hollow-triangle play icon,
+    centred on a pink ground. Triggered by a video-play placeholder line under
+    the 主图视频 card."""
+    icon = (
+        '<svg class="vd-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">'
+        '<path fill-rule="evenodd" fill="#444" d="M24 1A23 23 0 1 0 24 47A23 23 0 1 0 24 1Z'
+        'M24 5A19 19 0 1 1 24 43A19 19 0 1 1 24 5ZM19 15.5L33 24L19 32.5Z"/></svg>'
+    )
+    return f'<div class="video-demo"><span class="vd-text">主图视频示范</span>{icon}</div>'
+
+
 def lead_block(text: str) -> str:
     return f'<p class="lead">{esc(text)}</p>'
 
@@ -854,12 +917,18 @@ def red_list_block(items: list[str]) -> str:
 
 
 def module_layout(items: list[str], fallback: str) -> str:
-    """Faithfully redraw a「首张主图模块化布局图」schematic as clean coloured
-    blocks, driven by the captured 主图首张 module names — same spatial layout
-    (品牌 top-left, 主要功能卖点 banner, 主品 centre, 赠品/物流 corners, 材质/营销
-    bottom row), no watermark. Falls back to the raw image when the expected
-    modules can't be found."""
+    """Redraw a「首张主图模块化布局图」schematic as clean coloured blocks from the
+    captured 主图首张 module names — brand chip top-left, feature modules stacked on
+    the left, the product display on the right, the activity band across the bottom,
+    no watermark. Generic over the actual module names (works for any category).
+
+    NOTE: this is the no-vision fallback. An agent with image-reading ability
+    should instead read the real on-image text + proportions and redraw faithfully.
+    Falls back to the raw image only when fewer than two module names are known."""
     names = [re.split(r"[：:]", it, 1)[0].strip() for it in items]
+    names = [n for n in names if n]
+    if len(names) < 2:
+        return fallback
 
     def find(*keys: str) -> str | None:
         for name in names:
@@ -867,61 +936,65 @@ def module_layout(items: list[str], fallback: str) -> str:
                 return name
         return None
 
-    brand = find("品牌")
-    band = find("主要功能卖点", "核心卖点", "功能卖点")
-    sub = find("其他功能", "多功能")
-    center = find("场景", "产品展示", "主品")
-    material = find("材质")
-    market = find("营销卖点", "营销")
-    if not (band and center):
-        return fallback
-
-    center_label = "主品（场景化展示）" if center and "场景" in center else (center or "主品")
+    brand = find("品牌", "logo", "LOGO")
+    band = find("腰带", "营销", "活动")
+    product = find("产品展示", "右侧产品", "实物", "产品图", "产品")
+    used = {x for x in (brand, band, product) if x}
+    features = [n for n in names if n not in used] or ["核心卖点"]
 
     def blk(cls: str, text: str) -> str:
         return f'<div class="{cls}">{esc(text)}</div>'
 
-    frame = blk("ml-band", band)
-    if sub:
-        frame += blk("ml-sub", sub)
-    frame += blk("ml-center", center_label)
-    frame += blk("ml-corner ml-gift", "赠品（可选）")
-    frame += blk("ml-corner ml-logi", "物流信息 / 质保时间")
-    return (
-        '<div class="module-layout">'
-        + blk("ml-brand", f"{brand or '品牌'} LOGO")
-        + f'<div class="ml-frame">{frame}</div>'
-        + '<div class="ml-bottom">'
-        + blk("ml-material", material or "材质")
-        + blk("ml-market", market or "主要营销卖点")
-        + "</div></div>"
-    )
+    feats = "".join(blk("ml-feat", f) for f in features)
+    body = f'<div class="ml-col">{feats}</div>{blk("ml-product", product or "产品展示")}'
+    out = blk("ml-brand", f"{brand or '品牌'} LOGO")
+    out += f'<div class="ml-body">{body}</div>'
+    if band:
+        out += blk("ml-band", band)
+    return f'<div class="module-layout">{out}</div>'
+
+
+GENERIC_EXAMPLE_RE = re.compile(r"^示例图?\s*$")
+
+
+def is_generic_example_label(label: str | None) -> bool:
+    """A bare 示例 / 示例图 with NO colon and no title of its own → grey caption.
+    A colon form (示例图：/ 示例：) is a real label-line and stays red."""
+    return bool(label) and bool(GENERIC_EXAMPLE_RE.match(label.strip()))
 
 
 def grouped_text_block(label: str | None, items: list[str], images: list[str], blobs: dict[str, bytes], half: bool, metric: str | None = None) -> str:
     """One white module that merges a label with its sub-items and example images.
     An embedded "XX率+X%" metric (pulled out of the label) renders as a green bar
-    directly under the title, so it spans the module's inner width."""
-    inner = label_line(label) if label else ""
+    directly under the title, so it spans the module's inner width.
+
+    Image caption rules: never synthesise a "示例图：" title. Use the source's own
+    label as the picture's title — a real title (搜索列表页展示, 示例图：…) renders as a
+    red-square label-line; a bare 示例/示例图 degrades to a grey caption-line."""
+    generic = is_generic_example_label(label)
+    inner = ""
+    if label and generic:
+        inner += caption_line(clean_text(label))
+    elif label:
+        inner += label_line(label)
     if metric:
         inner += metric_emphasis(metric)
     inner += source_list(items)
     real_images = [t for t in images if t in blobs]
     if real_images:
-        # When the images sit under a label, indent the caption and images one
-        # level (28px) so they align with .source-list sub-items.
-        indent = " indent" if label else ""
-        inner += f'<div class="caption-line{indent}">示例图：</div>'
+        # Indent the pictures one level (28px) only under a real red-square label,
+        # so they align with .source-list sub-items; grey captions don't indent.
+        indent = " indent" if (label and not generic) else ""
         if half:
             holder_class = "image-holder half-image" + indent
         elif len(real_images) >= 2:
-            # Multiple side-by-side reference images (e.g. 短标题「示例：」): half
-            # the container width, all equal width.
+            # Multiple stacked reference images: half container width, all equal.
             holder_class = "image-holder sample-image" + indent
         else:
             holder_class = "image-holder" + indent
+        alt = clean_text(label) if label else "示意图"
         for target in real_images:
-            inner += f'<div class="{holder_class}">{image_tag(target, blobs, "示例图：")}</div>'
+            inner += f'<div class="{holder_class}">{image_tag(target, blobs, alt)}</div>'
     return f'<div class="text-block">{inner}</div>' if inner else ""
 
 
@@ -1025,11 +1098,12 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
 
     def flush_label() -> None:
         nonlocal pending_label, pending_metric, pending_items, pending_images, module_items
-        if pending_label is None and not pending_images and not pending_metric:
+        if pending_label is None and not pending_images and not pending_metric and not pending_items:
             return
+        item_texts = [it[1] if isinstance(it, tuple) else it for it in pending_items]
         # Capture the 主图首张 module list so a later 模块化布局图 can be redrawn.
         if pending_label and "主图首张" in pending_label:
-            mods = [it for it in pending_items if ("：" in it or ":" in it)]
+            mods = [t for t in item_texts if ("：" in t or ":" in t)]
             if mods:
                 module_items = mods
         # Redraw "首张主图模块化布局图" as a clean module schematic (no watermark)
@@ -1064,12 +1138,14 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
             continue
 
         if block.images and not block.text:
-            flush_plain()
             flush_bracket()
-            # Always accumulate into pending_images (even with no label) so that
-            # consecutive image-only paragraphs land in ONE module and share a
-            # single uniform width class, instead of each becoming its own
-            # natural-width block.
+            # If the picture is directly preceded by a short title line (展示/示例/
+            # 图…), lift it out of the loose text into the image's red-square label.
+            if pending_label is None and not pending_images and plain_items and looks_like_image_title(plain_items[-1]):
+                pending_label = plain_items.pop()
+            flush_plain()
+            # Accumulate into pending_images so consecutive image-only paragraphs
+            # land in ONE module and share a single uniform width class.
             pending_images.extend(block.images)
             continue
 
@@ -1077,11 +1153,22 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
         if not text:
             continue
 
+        # Never render a bare 示例 / 示例图 line; pictures carry their own title.
+        if is_generic_example_label(text) and not block.images:
+            continue
+
         if is_conversion_metric(text):
             flush_plain()
             flush_bracket()
             flush_label()
             rendered.append(metric_emphasis(text))
+            continue
+
+        if VIDEO_DEMO_RE.search(text):
+            flush_plain()
+            flush_bracket()
+            flush_label()
+            rendered.append(video_demo_box())
             continue
 
         if BRACKET_RE.match(text):
@@ -1101,19 +1188,34 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
             pending_images = []
             continue
 
-        if pending_label is not None:
-            pending_items.append(text)
+        # A new short title line after a finished image group starts a fresh
+        # titled image module (e.g. 参数楼层商详页展示 → img → 商品参数展示 → img).
+        if pending_label is not None and pending_images and looks_like_image_title(text):
+            flush_label()
+            pending_label = text
             continue
 
-        # No active label: flush any loose accumulated images first so they keep
-        # their original position relative to the text that follows.
-        flush_label()
+        # Hierarchy from the source: a Word list item (ilvl set) or a manual ①②③
+        # enumeration is a grey sub-detail (level by ilvl), never a red heading.
+        if block.list_level is not None or CIRCLED_RE.match(text):
+            flush_plain()
+            flush_bracket()
+            level = block.list_level if block.list_level is not None else 0
+            pending_items.append((level, text))
+            continue
 
+        # ilvl=None line nested under an active label is a level-0 grey sub-item.
+        if pending_label is not None:
+            pending_items.append((0, text))
+            continue
+
+        # Top-level (ilvl=None, no active label) line.
+        flush_label()
         if is_intro and not lead_done and not rendered and not plain_items and not bracket_items:
             rendered.append(lead_block(text))
             lead_done = True
         elif COLON_PREFIX_RE.match(text):
-            # Top-level "前缀：内容" lead-in becomes a red-square + pink-highlight list item.
+            # "前缀：内容" heading at top level → red-square + pink-highlight item.
             flush_plain()
             bracket_items.append(text)
         else:
