@@ -27,70 +27,10 @@ html, body {
   position: relative;
   height: 520px;
   padding: 72px 44px 0;
-  background:
-    radial-gradient(circle at 78% 22%, rgba(255,255,255,0.28) 0 2px, transparent 3px 100%),
-    linear-gradient(102deg, rgba(255,48,38,0.98), rgba(255,30,22,0.96));
+  background: #FF2B22;        /* 纯品牌红单色，无渐变、无装饰 */
   color: #fff;
   overflow: hidden;
 }
-
-.hero::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  opacity: 0.18;
-  background-image:
-    linear-gradient(85deg, transparent 0 12%, rgba(255,255,255,0.9) 12.2%, transparent 12.6% 100%),
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.45) 0 2px, transparent 2px 22px),
-    repeating-linear-gradient(90deg, rgba(255,255,255,0.35) 0 2px, transparent 2px 28px);
-  transform: skewY(-4deg) scale(1.08);
-}
-
-.robot-deco {
-  position: absolute;
-  inset: 0;
-  opacity: 0.52;
-  pointer-events: none;
-}
-
-.ring {
-  position: absolute;
-  border: 3px solid rgba(255,255,255,0.44);
-  border-radius: 50%;
-}
-.ring::before {
-  content: "";
-  position: absolute;
-  inset: 26px;
-  border: 2px solid rgba(255,255,255,0.3);
-  border-radius: 50%;
-}
-.ring::after {
-  content: "";
-  position: absolute;
-  inset: 50% auto auto 50%;
-  width: 60px;
-  height: 60px;
-  margin: -30px 0 0 -30px;
-  background:
-    linear-gradient(rgba(255,255,255,0.45) 0 2px, transparent 2px 100%) 50% 50% / 60px 60px no-repeat,
-    linear-gradient(90deg, rgba(255,255,255,0.45) 0 2px, transparent 2px 100%) 50% 50% / 60px 60px no-repeat;
-}
-.ring-one { right: -60px; top: -80px; width: 360px; height: 360px; }
-.ring-two { right: 280px; top: 60px; width: 220px; height: 220px; }
-.ring-two::before { inset: 18px; }
-.ring-three { right: 100px; top: 280px; width: 160px; height: 160px; }
-.ring-three::before { inset: 14px; }
-
-.path-line {
-  position: absolute;
-  height: 2px;
-  background: rgba(255,255,255,0.42);
-}
-.path-a { left: 30px; right: 600px; top: 220px; transform: rotate(-3deg); }
-.path-b { left: 70px; right: 700px; top: 280px; transform: rotate(2deg); }
-.path-c { left: 120px; right: 350px; top: 360px; transform: rotate(-2deg); }
-.path-d { left: 40px; right: 720px; top: 420px; transform: rotate(1deg); }
 
 .hero h1 {
   position: relative;

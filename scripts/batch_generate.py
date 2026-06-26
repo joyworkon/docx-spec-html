@@ -24,9 +24,10 @@ from validate_output import validate
 
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DESIGN = SKILL_ROOT / "references" / "mpdn50eu-design.md"
+DEFAULT_DESIGN = SKILL_ROOT / "references" / "design.md"
 DEFAULT_FONT = SKILL_ROOT / "assets" / "fonts" / "JINGDONGLangZhengTi1-Bold.ttf"
 DEFAULT_H2C = SKILL_ROOT / "assets" / "vendor" / "html2canvas.min.js"
+DEFAULT_EDITOR = SKILL_ROOT / "assets" / "vendor" / "html-editor.html"
 
 
 @dataclass
@@ -242,59 +243,54 @@ body { background: #737373; }
   object-fit: contain;
 }
 
-/* Module-layout schematic: a clean redraw of the "首张主图模块化布局图"
-   reference image (品牌 / 主要功能卖点 / 主品 / 赠品 / 物流质保 / 材质 / 营销卖点),
-   keeping the original spatial arrangement but dropping the watermark. */
-/* 首张主图模块化布局重绘：黄底红框容器，内部按原图结构布局
-   (店铺名称 | 品牌LOGO 顶行；侧栏卖点 | 商品主图 中部；质保腰带 底部)。
-   每块用一种明显区分的颜色（底色/边框固定为黄/红，其余各异）。 */
+/* Module-layout schematic: a clean, watermark-free redraw of the
+   "首张主图模块化布局图" reference image. The system is layout-AGNOSTIC: the
+   container fixes only the yellow fill + red border; the actual block positions,
+   sizes and wording come from the reference image. A model with vision must read
+   the real image, place each .ml-block on the grid to mirror the source's row /
+   column split and relative areas, and write the verbatim on-image text. */
+/* 首张主图模块化布局重绘：黄底红框容器；内部用 .ml-grid 网格 + .ml-block 色块，
+   每块的行列位置/跨度由模型按"那张图"的真实布局用内联 grid-column/grid-row 设定，
+   不再写死京东模板。每块用一种明显区分的颜色（黄底/红框固定，其余各异），文字居中。 */
 .poster.auto-doc .module-layout {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-width: 560px;        /* roughly square, like the source schematic */
+  max-width: 620px;        /* keep the source schematic's portrait proportion */
   margin: 0 auto;
   background: #fff8e1;     /* fixed light-yellow fill */
-  border: 3px solid #ff2b22;  /* fixed red border */
+  border: 2px solid #ff2b22;  /* fixed red border */
   border-radius: 14px;
   padding: 16px;
 }
-.poster.auto-doc .module-layout div { font-weight: 700; }
-.poster.auto-doc .ml-top { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; }
-.poster.auto-doc .ml-mid { display: grid; grid-template-columns: 1fr 2fr; gap: 12px; }
-.poster.auto-doc .ml-top > div,
-.poster.auto-doc .ml-main,
-.poster.auto-doc .ml-foot {
+/* The grid: the model sets grid-template-columns / -rows (and gap) inline to
+   reproduce the reference image's split, e.g. style="grid-template-columns:1fr 2fr". */
+.poster.auto-doc .module-layout .ml-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.poster.auto-doc .module-layout .ml-block {
   display: grid;
   place-items: center;
-  text-align: center;
+  text-align: center;       /* every block's text is centered */
   border-radius: 10px;
   padding: 18px 14px;
   line-height: 1.3;
+  font-weight: 700;
+  font-size: 22px;
 }
-.poster.auto-doc .ml-shop { background: #cfe6ff; color: #134a73; font-size: 22px; }   /* blue */
-.poster.auto-doc .ml-logo { background: #ffe0b3; color: #7a4a12; font-size: 22px; }   /* orange */
-.poster.auto-doc .ml-side {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 10px;
-  background: #d7f0d8;     /* green */
-  color: #1f5f2a;
-  border-radius: 10px;
-  padding: 18px 12px;
-  text-align: center;
-  font-size: 19px;
-}
-.poster.auto-doc .ml-main {
-  min-height: 300px;
-  background: #e7e0f5;     /* purple */
-  color: #3a2f78;
-  font-size: 34px;
-}
-.poster.auto-doc .ml-foot { background: #ffd6e0; color: #8a2741; font-size: 22px; }   /* pink */
+.poster.auto-doc .module-layout .ml-lg { font-size: 34px; }   /* emphasize the main product */
+.poster.auto-doc .module-layout .ml-tall { min-height: 280px; }
+/* Distinct fills the model assigns so neighbouring blocks stay clearly separated. */
+.poster.auto-doc .module-layout .ml-c1 { background: #cfe6ff; color: #134a73; }  /* blue */
+.poster.auto-doc .module-layout .ml-c2 { background: #ffe0b3; color: #7a4a12; }  /* orange */
+.poster.auto-doc .module-layout .ml-c3 { background: #d7f0d8; color: #1f5f2a; }  /* green */
+.poster.auto-doc .module-layout .ml-c4 { background: #e7e0f5; color: #3a2f78; }  /* purple */
+.poster.auto-doc .module-layout .ml-c5 { background: #ffd6e0; color: #8a2741; }  /* pink */
+.poster.auto-doc .module-layout .ml-c6 { background: #fff3b0; color: #7a6512; }  /* amber */
+.poster.auto-doc .module-layout .ml-c7 { background: #cdeeea; color: #0f5b54; }  /* teal */
+.poster.auto-doc .module-layout .ml-c8 { background: #f6d9c0; color: #8a4a1f; }  /* tan */
 
-/* 主图视频示范 — pink play-button banner (text + hollow-triangle play icon) */
+/* 主图视频 play card — 「点击播放」 + play icon (solid dark-grey circle with a
+   hollow knocked-out triangle), dark grey on a light-pink ground, centred. */
 .poster.auto-doc .video-demo {
   display: flex;
   align-items: center;
@@ -307,7 +303,7 @@ body { background: #737373; }
 .poster.auto-doc .video-demo .vd-text {
   font-size: 30px;
   font-weight: 700;
-  color: #444;
+  color: #555;
 }
 .poster.auto-doc .video-demo .vd-icon { width: 52px; height: 52px; display: block; }
 
@@ -387,6 +383,8 @@ body { background: #737373; }
   display: flex;
   flex-direction: column;
   justify-content: center;
+  align-items: center;
+  text-align: center;
   gap: 6px;
   background: #f7f7f7;
   border-radius: 8px;
@@ -456,6 +454,23 @@ body { background: #737373; }
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
 }
 .dl-page-btn[disabled] { opacity: 0.6; cursor: default; }
+.edit-page-btn {
+  position: fixed;
+  right: 168px;      /* sit to the left of 下载整页图片 so they don't overlap */
+  bottom: 18px;
+  z-index: 9999;
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 18px;
+  background: #1f2329;
+  color: #fff;
+  font-family: "MiSans", "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
 body.editing [contenteditable="true"] {
   outline: 2px dashed rgba(255, 43, 34, 0.75);
   outline-offset: 3px;
@@ -495,11 +510,13 @@ body.editing [contenteditable="true"] {
    The hero grows taller so the enlarged title, rule and date keep their
    spacing and the white rule is not covered by the first card. */
 .poster.auto-doc .hero { height: 600px; }
-/* Clean hero background: solid red gradient — no grid texture, rings or dots. */
+/* Clean hero background: flat brand-red, no gradient/grid texture/rings/dots. */
 .poster.auto-doc .hero {
-  background: linear-gradient(102deg, #ff3026, #ff1e16);
+  background: #FF2B22;
 }
-.poster.auto-doc .hero::before { display: none; }
+.poster.auto-doc .hero::before,
+.poster.auto-doc .robot-deco,
+.poster.auto-doc .path-line,
 .poster.auto-doc .rings,
 .poster.auto-doc .ring { display: none; }
 /* Arrows rendered as inline SVG (not a CSS background image) so html2canvas
@@ -923,19 +940,28 @@ def metric_emphasis(text: str) -> str:
     return f'<div class="metric-emphasis">{inner}</div>'
 
 
-VIDEO_DEMO_RE = re.compile(r"主图视频示范|视频播放按钮|播放按钮")
+# Strong "this is a clickable video" signals — trigger the 点击播放 card anywhere.
+VIDEO_DEMO_RE = re.compile(r"主图视频示范|视频示范|示范视频|视频演示|视频播放按钮|播放按钮")
+# Weak signals — a link or a "click to view" hint. These are only treated as a
+# video play card INSIDE a 主图视频 section, so they don't hijack other sections.
+VIDEO_HINT_RE = re.compile(r"查看链接|视频链接|视频地址|点击查看|点击播放|观看视频|视频入口|扫码观看|视频如下")
+# A video link (http/https) provided under the 主图视频 section: its title + link
+# are replaced by the 点击播放 card.
+VIDEO_URL_RE = re.compile(r"https?://\S+")
 
 
 def video_demo_box() -> str:
-    """A 主图视频示范 banner: bold dark-grey label + a hollow-triangle play icon,
-    centred on a pink ground. Triggered by a video-play placeholder line under
-    the 主图视频 card."""
+    """A 主图视频 play card: bold dark-grey 「点击播放」 label + a play icon (a solid
+    dark-grey circle with a knocked-out / hollow triangle), centred on a light-pink
+    ground. Triggered by a video-play placeholder line OR a video URL under the
+    主图视频 card."""
     icon = (
         '<svg class="vd-icon" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">'
-        '<path fill-rule="evenodd" fill="#444" d="M24 1A23 23 0 1 0 24 47A23 23 0 1 0 24 1Z'
-        'M24 5A19 19 0 1 1 24 43A19 19 0 1 1 24 5ZM19 15.5L33 24L19 32.5Z"/></svg>'
+        # evenodd: full disc minus a triangle subpath -> the triangle is a hole.
+        '<path fill-rule="evenodd" fill="#555" d="M24 1A23 23 0 1 0 24 47A23 23 0 1 0 24 1Z'
+        'M19 14.5L35 24L19 33.5Z"/></svg>'
     )
-    return f'<div class="video-demo"><span class="vd-text">主图视频示范</span>{icon}</div>'
+    return f'<div class="video-demo"><span class="vd-text">点击播放</span>{icon}</div>'
 
 
 def lead_block(text: str) -> str:
@@ -968,47 +994,32 @@ def red_list_block(items: list[str]) -> str:
 
 
 def module_layout(items: list[str], fallback: str) -> str:
-    """Redraw a「首张主图模块化布局图」schematic as clean coloured blocks from the
-    captured 主图首张 module names — brand chip top-left, feature modules stacked on
-    the left, the product display on the right, the activity band across the bottom,
-    no watermark. Generic over the actual module names (works for any category).
+    """No-vision FALLBACK redraw of a「首张主图模块化布局图」schematic.
 
-    NOTE: this is the no-vision fallback. An agent with image-reading ability
-    should instead read the real on-image text + proportions and redraw faithfully.
-    Falls back to the raw image only when fewer than two module names are known."""
+    This runs only when no model vision is available. It deliberately does NOT
+    invent a layout (no "店铺名称" top row, no default "商品主图" / "质保承诺"
+    slots — those guesses misled real models into copying a template instead of
+    the actual image). It just stacks the REAL captured 主图首张 module names in a
+    single column, verbatim, each in a distinct colour. An agent WITH image-reading
+    ability must replace this with a faithful redraw that mirrors the real image's
+    rows/columns and proportions (see references/design.md).
+
+    Falls back to the raw image when fewer than two real module names are known."""
     names = [re.split(r"[：:]", it, 1)[0].strip() for it in items]
     names = [n for n in names if n]
     if len(names) < 2:
         return fallback
 
-    def find(*keys: str) -> str | None:
-        for name in names:
-            if any(k in name for k in keys):
-                return name
-        return None
-
-    brand = find("品牌", "logo", "LOGO")
-    band = find("腰带", "营销", "活动", "质保", "正品", "承诺", "保障", "售后")
-    product = find("产品展示", "右侧产品", "实物", "产品图", "主图", "产品")
-    used = {x for x in (brand, band, product) if x}
-    features = [n for n in names if n not in used] or ["核心卖点"]
-
-    def blk(cls: str, text: str) -> str:
-        return f'<div class="{cls}">{esc(text)}</div>'
-
-    side = "".join(blk("ml-line", f) for f in features)
+    palette = ["ml-c1", "ml-c2", "ml-c3", "ml-c4", "ml-c5", "ml-c6", "ml-c7", "ml-c8"]
+    blocks = "".join(
+        f'<div class="ml-block {palette[i % len(palette)]}">{esc(n)}</div>'
+        for i, n in enumerate(names)
+    )
+    # Single-column stack of the real names — honest about what is known, with no
+    # fabricated structure. The vision-capable redraw supplies the true grid.
     return (
-        '<div class="module-layout">'
-        '<div class="ml-top">'
-        + blk("ml-shop", "店铺名称")
-        + blk("ml-logo", f"{brand or '品牌'}LOGO")
-        + "</div>"
-        '<div class="ml-mid">'
-        + f'<div class="ml-side">{side}</div>'
-        + blk("ml-main", product or "商品主图")
-        + "</div>"
-        + blk("ml-foot", band or "质保承诺 · 正品保证")
-        + "</div>"
+        '<div class="module-layout"><div class="ml-grid" '
+        'style="grid-template-columns:1fr;">' + blocks + "</div></div>"
     )
 
 
@@ -1131,7 +1142,7 @@ def table_group(label: str | None, table: Table, doc: DocumentObject, blobs: dic
     return f'<div class="text-block">{label_html}{metric_html}{inner}</div>'
 
 
-def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: DocumentObject, blobs: dict[str, bytes], *, is_intro: bool = False, half_images: bool = False) -> str:
+def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: DocumentObject, blobs: dict[str, bytes], *, is_intro: bool = False, half_images: bool = False, video_section: bool = False) -> str:
     rendered: list[str] = []
     plain_items: list[str] = []
     bracket_items: list[str] = []
@@ -1141,6 +1152,7 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
     pending_images: list[str] = []
     module_items: list[str] = []  # captured 主图首张 module names, for the layout redraw
     lead_done = False
+    video_card_done = False  # in a 主图视频 section, emit the play card only once
 
     def flush_plain() -> None:
         nonlocal plain_items
@@ -1236,11 +1248,26 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
             rendered.append(metric_emphasis(text))
             continue
 
-        if VIDEO_DEMO_RE.search(text):
+        is_video_strong = bool(VIDEO_DEMO_RE.search(text))
+        is_video_weak = video_section and not is_video_strong and bool(
+            VIDEO_URL_RE.search(text) or VIDEO_HINT_RE.search(text)
+        )
+        if is_video_strong or is_video_weak:
             flush_plain()
             flush_bracket()
-            flush_label()
-            rendered.append(video_demo_box())
+            if is_video_weak:
+                # The card replaces the title + link/hint: drop a pending bare title
+                # (e.g. 主图视频：/ 视频链接：/ 查看链接) instead of rendering it.
+                pending_label = None
+                pending_metric = None
+                pending_items = []
+                pending_images = []
+            else:
+                flush_label()
+            # In a 主图视频 section collapse repeated placeholders/links to one card.
+            if not (video_section and video_card_done):
+                rendered.append(video_demo_box())
+                video_card_done = True
             continue
 
         if BRACKET_RE.match(text):
@@ -1382,6 +1409,44 @@ def download_runtime() -> str:
     )
 
 
+def editor_runtime() -> str:
+    """A floating 「编辑」 button that opens the bundled visual HTML editor in a NEW
+    window, pre-loaded with the current page. The whole editor is embedded as inert
+    base64 so the page stays self-contained / offline (no second file needed)."""
+    if not DEFAULT_EDITOR.exists():
+        return ""
+    b64 = base64.b64encode(DEFAULT_EDITOR.read_bytes()).decode("ascii")
+    launcher = (
+        "(function(){var b=document.getElementById('edit-page-btn');"
+        "var srcEl=document.getElementById('editor-src-b64');"
+        "if(!b||!srcEl)return;"
+        "b.addEventListener('click',function(){"
+        # Clean snapshot of the current poster: drop the floating controls + scripts.
+        "var root=document.documentElement.cloneNode(true);"
+        "root.querySelectorAll('[data-html2canvas-ignore],script').forEach(function(n){n.remove();});"
+        "var poster='<!doctype html>\\n'+root.outerHTML;"
+        # Decode the embedded editor (UTF-8 safe), then run it in a new window with
+        # the current page handed off via window.__PRELOAD_HTML__.
+        "var bin=atob(srcEl.textContent.trim());var bytes=new Uint8Array(bin.length);"
+        "for(var i=0;i<bin.length;i++){bytes[i]=bin.charCodeAt(i);}"
+        "var editorHtml=new TextDecoder('utf-8').decode(bytes);"
+        "var name=(document.title||'页面')+'.html';"
+        "var boot='<script>window.__PRELOAD_NAME__='+JSON.stringify(name)+';window.__PRELOAD_HTML__='+JSON.stringify(poster)+';<\\/script>';"
+        # Inject boot inside <head> so the doctype stays first (no quirks mode).
+        "var out=editorHtml.replace(/<head([^>]*)>/i,function(m){return m+boot;});"
+        "if(out===editorHtml){out=boot+editorHtml;}"
+        "var w=window.open('','_blank');"
+        "if(!w){alert('请允许弹出窗口后重试');return;}"
+        "w.document.open();w.document.write(out);w.document.close();"
+        "});})();"
+    )
+    return (
+        '<button id="edit-page-btn" class="edit-page-btn" data-html2canvas-ignore>编辑</button>\n'
+        f'<script type="application/octet-stream" id="editor-src-b64" data-html2canvas-ignore>{b64}</script>\n'
+        f"<script>{launcher}</script>"
+    )
+
+
 def render_html(docx_path: Path, design_path: Path, font_path: Path | None, updated_label: str, editable: bool) -> str:
     doc = Document(docx_path)
     blobs = image_target_to_blob(doc)
@@ -1392,8 +1457,10 @@ def render_html(docx_path: Path, design_path: Path, font_path: Path | None, upda
     for section_title, section_blocks, section_metric in sections:
         is_intro = section_title == "整体规范综述" and not cards
         half_images = "图文详情" in section_title
+        video_section = "主图视频" in section_title
         body = render_section_blocks(
-            section_blocks, doc, blobs, is_intro=is_intro, half_images=half_images
+            section_blocks, doc, blobs, is_intro=is_intro, half_images=half_images,
+            video_section=video_section,
         )
         if is_intro:
             cards.append(render_card(section_title, body, None))
@@ -1420,6 +1487,7 @@ def render_html(docx_path: Path, design_path: Path, font_path: Path | None, upda
   {''.join(cards)}
 </main>
 {download_runtime()}
+{editor_runtime()}
 {editable_runtime}
 </body>
 </html>
@@ -1451,7 +1519,7 @@ def generate_one(docx_path: Path, output_dir: Path, design_path: Path, font_path
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Batch-generate MPDN50EU-style single-file HTML from DOCX files.")
+    parser = argparse.ArgumentParser(description="Batch-generate single-file HTML from DOCX files.")
     parser.add_argument("input", type=Path, help="A .docx file or a folder containing .docx files.")
     parser.add_argument("output_dir", type=Path, help="Folder for generated HTML and reports.")
     parser.add_argument("--design", type=Path, default=DEFAULT_DESIGN)

@@ -179,9 +179,13 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
                 metric_n = normalize_for_match(mt.group(2))
                 if core_n and metric_n and core_n in normalized_visible and metric_n in normalized_visible:
                     continue
-            # A video-play placeholder line is intentionally rendered as the
-            # 主图视频示范 play banner, so its original wording is replaced by design.
-            if re.search(r"视频播放按钮|播放按钮|主图视频示范", text) and "主图视频示范" in visible:
+            # A video-play placeholder line OR a video URL under 主图视频 is
+            # intentionally rendered as the 「点击播放」 play card, so its original
+            # wording (the placeholder text or the raw link) is replaced by design.
+            if "video-demo" in html_text and (
+                re.search(r"视频播放按钮|播放按钮|主图视频示范", text)
+                or re.search(r"https?://", text)
+            ):
                 continue
             # A label may be split into separate modules (e.g. "2.优化前后图 商详转化率+2%"
             # becomes a "2.优化前后图" title plus a "商详转化率+2%" green metric bar).
@@ -264,7 +268,7 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate DOCX-to-MPDN50EU HTML output.")
+    parser = argparse.ArgumentParser(description="Validate DOCX-to-HTML output.")
     parser.add_argument("docx", type=Path)
     parser.add_argument("html", type=Path)
     parser.add_argument("--report", type=Path)
