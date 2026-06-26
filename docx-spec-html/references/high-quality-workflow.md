@@ -46,7 +46,7 @@ Do not deliver raw `batch_generate.py` output as the final page. The batch scrip
    - If validation passes but the browser view still looks wrong, fix the visual issue and revalidate.
 
 6. Update reusable rules
-   - If a browser comment reveals a general rule, update `references/mpdn50eu-design.md`.
+   - If a browser comment reveals a general rule, update `references/design.md`.
    - If the issue is document-specific, fix only the generated HTML or project-specific generator.
 
 ## Common Failure Modes
