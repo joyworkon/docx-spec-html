@@ -857,22 +857,53 @@ ${Bf}
       setTimeout(function(){URL.revokeObjectURL(a.href);},1500);
     },'image/png');
   }
+  // html2canvas ignores object-fit + mix-blend-mode, so a replaced .hero-overlay
+  // would export deformed and un-blended. Pre-composite the red + overlay image
+  // into a flat, hero-sized PNG (cover-fit + blend baked in via canvas
+  // globalCompositeOperation), swap it in (no blend, fill), capture, then restore
+  // — so the exported PNG matches the editor preview.
+  function flattenHeroOverlay(doc){
+    return new Promise(function(resolve){
+      try{
+        var ov=doc.querySelector('.hero-overlay');
+        if(!ov||!ov.naturalWidth||ov.naturalWidth<=2){ return resolve(null); }
+        var hero=ov.closest('.hero')||ov.parentNode, r=hero.getBoundingClientRect();
+        var W=Math.max(1,Math.round(r.width)), H=Math.max(1,Math.round(r.height));
+        var win=doc.defaultView||window, cs=win.getComputedStyle(ov);
+        var blend=(cs.mixBlendMode&&cs.mixBlendMode!=='normal')?cs.mixBlendMode:'overlay';
+        var bg=win.getComputedStyle(hero).backgroundColor||'#FF2B22';
+        var cnv=doc.createElement('canvas'); cnv.width=W; cnv.height=H;
+        var ctx=cnv.getContext('2d'); ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+        var iw=ov.naturalWidth, ih=ov.naturalHeight, sc=Math.max(W/iw,H/ih), dw=iw*sc, dh=ih*sc;
+        ctx.globalCompositeOperation=blend; ctx.drawImage(ov,(W-dw)/2,(H-dh)/2,dw,dh);
+        ctx.globalCompositeOperation='source-over'; var flat=cnv.toDataURL('image/png');
+        var saved={src:ov.getAttribute('src'),mb:ov.style.mixBlendMode,of:ov.style.objectFit};
+        var fired=false, done=function(){ if(fired)return; fired=true; ov.removeEventListener('load',done);
+          resolve(function(){ ov.setAttribute('src',saved.src); ov.style.mixBlendMode=saved.mb; ov.style.objectFit=saved.of; }); };
+        ov.addEventListener('load',done); ov.style.mixBlendMode='normal'; ov.style.objectFit='fill';
+        ov.setAttribute('src',flat); setTimeout(done,800);
+      }catch(e){ resolve(null); }
+    });
+  }
   function exportPng(btn){
     var ifr=findIframe(), poster=getPoster(ifr);
     if(!ifr||!poster){ alert('请先加载或编辑一个页面再导出图片'); return; }
     var label=btn.textContent; btn.textContent='生成中…'; btn.disabled=true;
     var fn=document.querySelector('.file-name');
     var base=((fn&&fn.textContent)||'export').replace(/\.html?$/i,'')||'export';
+    var restore=null;
     ensureH2C(ifr).then(function(win){
-      var h=poster.scrollHeight, s=Math.min(2,Math.max(0.3,32000/h));
-      return win.html2canvas(poster,{scale:s,backgroundColor:'#dcedff',useCORS:true,logging:false,
-        windowWidth:poster.scrollWidth, windowHeight:h,
-        ignoreElements:function(el){ return el.hasAttribute&&el.hasAttribute('data-ed-injected'); },
-        onclone:function(d){ var ns=d.querySelectorAll('.ed-hover,.ed-selected,.ed-editing');
-          for(var i=0;i<ns.length;i++){ ns[i].classList.remove('ed-hover','ed-selected','ed-editing'); ns[i].removeAttribute('contenteditable'); } }
+      return flattenHeroOverlay(ifr.contentDocument).then(function(rf){ restore=rf;
+        var h=poster.scrollHeight, s=Math.min(2,Math.max(0.3,32000/h));
+        return win.html2canvas(poster,{scale:s,backgroundColor:'#dcedff',useCORS:true,logging:false,
+          windowWidth:poster.scrollWidth, windowHeight:h,
+          ignoreElements:function(el){ return el.hasAttribute&&el.hasAttribute('data-ed-injected'); },
+          onclone:function(d){ var ns=d.querySelectorAll('.ed-hover,.ed-selected,.ed-editing');
+            for(var i=0;i<ns.length;i++){ ns[i].classList.remove('ed-hover','ed-selected','ed-editing'); ns[i].removeAttribute('contenteditable'); } }
+        });
       });
-    }).then(function(c){ download(c, base+'.png'); btn.textContent=label; btn.disabled=false; })
-      .catch(function(e){ console.error(e); alert('导出图片失败：'+((e&&e.message)||e)); btn.textContent=label; btn.disabled=false; });
+    }).then(function(c){ if(restore)restore(); download(c, base+'.png'); btn.textContent=label; btn.disabled=false; })
+      .catch(function(e){ if(restore)restore(); console.error(e); alert('导出图片失败：'+((e&&e.message)||e)); btn.textContent=label; btn.disabled=false; });
   }
   function makeBtn(){
     var b=document.createElement('button');
