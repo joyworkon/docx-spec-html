@@ -519,6 +519,27 @@ body.editing [contenteditable="true"] {
 .poster.auto-doc .path-line,
 .poster.auto-doc .rings,
 .poster.auto-doc .ring { display: none; }
+/* Replaceable hero background overlay: a transparent image layered ON TOP of the
+   flat red but BEHIND the title text, and BLENDED with the red (mix-blend-mode)
+   so a replaced image composites with the brand red instead of sitting opaquely
+   on top. The red colour underneath is never changed.
+   IMPORTANT: do NOT re-position the hero children here — the base CSS already
+   gives .hero h1/.updated/.hero-mark/.hero-rule z-index:1, and .updated/.hero-mark
+   are position:absolute (pinned to the corners). Overriding them to position
+   relative drops the date/bracket into normal flow and breaks the hero. */
+.poster.auto-doc .hero { position: relative; overflow: hidden; isolation: isolate; }
+.poster.auto-doc .hero-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  z-index: 0;
+  display: block;
+  border: 0;
+  mix-blend-mode: overlay;
+}
 /* Arrows rendered as inline SVG (not a CSS background image) so html2canvas
    keeps them in the downloaded full-page PNG. */
 .poster.auto-doc .en-label span,
@@ -534,6 +555,8 @@ body.editing [contenteditable="true"] {
   border-width: 2px;
 }
 .poster.auto-doc .updated { font-size: 27px; }
+/* Bottom-align the update date with the white hero-rule arrow under the title. */
+.poster.auto-doc .updated { bottom: 165px; }
 
 /* 2) List dots scaled (~11 -> 16) */
 .poster.auto-doc .red-list li::before,
@@ -924,6 +947,14 @@ HERO_RULE_ARROW_SVG = (
     f'aria-hidden="true"><path d="{_ARROW_PATH}" fill="#ffffff"/></svg>'
 )
 
+# Fully transparent 1x1 PNG: the default hero-overlay so the delivered page shows
+# clean red. Replace this image in the editor (双击 → 替换图片) to float any picture
+# ON TOP of the red without touching the red background colour underneath.
+HERO_OVERLAY_SRC = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+)
+
 
 def metric_emphasis(text: str) -> str:
     cleaned = clean_text(text)
@@ -1210,6 +1241,19 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
             return nb.list_level is not None and nb.list_level > base
         return False
 
+    def table_follows(idx: int) -> bool:
+        """True when the next non-empty block is a Word table — used to lift a
+        caption-like line (e.g. 完整主图结构规范示例) into that table's title."""
+        for nb in blocks[idx + 1:]:
+            if isinstance(nb, TableBlock):
+                return True
+            if isinstance(nb, ParagraphBlock):
+                if nb.text or nb.images:
+                    return False
+                continue
+            return False
+        return False
+
     for idx, block in enumerate(blocks):
         if isinstance(block, TableBlock):
             flush_plain()
@@ -1268,6 +1312,21 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
             if not (video_section and video_card_done):
                 rendered.append(video_demo_box())
                 video_card_done = True
+            continue
+
+        # A caption-like line immediately followed by a TABLE is that table's
+        # title: lift it to a red-square label-line in the SAME module as the
+        # table (e.g. 完整主图结构规范示例 above the 主图/内容要求/示例 spec table),
+        # even when a previous container is still open. Without this the line is
+        # swallowed as a grey sub-item of the open container and the table loses
+        # its title.
+        if looks_like_image_title(text) and table_follows(idx):
+            flush_plain()
+            flush_bracket()
+            flush_label()
+            pending_label = text
+            pending_items = []
+            pending_images = []
             continue
 
         if BRACKET_RE.match(text):
@@ -1385,6 +1444,34 @@ def render_card(title: str, body: str, num: int | None, metric: str | None = Non
     return f'<section class="{card_class}">{section_head(num, title)}<div class="gray-panel spec-text">{bar}{body}</div></section>'
 
 
+# Shared helper: html2canvas does NOT support object-fit or mix-blend-mode, so a
+# replaced .hero-overlay image would download deformed (stretched) and un-blended
+# (wrong colour). Before capture we pre-composite the red + overlay image into a
+# single flat, hero-sized PNG (cover-fit + the blend baked in via canvas
+# globalCompositeOperation), swap it in (no blend, fill = no distortion), and
+# restore afterwards — so the download matches the on-screen preview.
+HERO_FLATTEN_JS = (
+    "function flattenHeroOverlay(doc){return new Promise(function(resolve){try{"
+    "var ov=doc.querySelector('.hero-overlay');"
+    "if(!ov||!ov.naturalWidth||ov.naturalWidth<=2){return resolve(null);}"
+    "var hero=ov.closest('.hero')||ov.parentNode;var r=hero.getBoundingClientRect();"
+    "var W=Math.max(1,Math.round(r.width)),H=Math.max(1,Math.round(r.height));"
+    "var win=doc.defaultView||window,cs=win.getComputedStyle(ov);"
+    "var blend=(cs.mixBlendMode&&cs.mixBlendMode!=='normal')?cs.mixBlendMode:'overlay';"
+    "var bg=win.getComputedStyle(hero).backgroundColor||'#FF2B22';"
+    "var cnv=doc.createElement('canvas');cnv.width=W;cnv.height=H;var ctx=cnv.getContext('2d');"
+    "ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);"
+    "var iw=ov.naturalWidth,ih=ov.naturalHeight,sc=Math.max(W/iw,H/ih),dw=iw*sc,dh=ih*sc;"
+    "ctx.globalCompositeOperation=blend;ctx.drawImage(ov,(W-dw)/2,(H-dh)/2,dw,dh);"
+    "ctx.globalCompositeOperation='source-over';var flat=cnv.toDataURL('image/png');"
+    "var saved={src:ov.getAttribute('src'),mb:ov.style.mixBlendMode,of:ov.style.objectFit};"
+    "var fired=false;var done=function(){if(fired)return;fired=true;ov.removeEventListener('load',done);"
+    "resolve(function(){ov.setAttribute('src',saved.src);ov.style.mixBlendMode=saved.mb;ov.style.objectFit=saved.of;});};"
+    "ov.addEventListener('load',done);ov.style.mixBlendMode='normal';ov.style.objectFit='fill';"
+    "ov.setAttribute('src',flat);setTimeout(done,800);}catch(e){resolve(null);}});}"
+)
+
+
 def download_runtime() -> str:
     """A floating "下载整页图片" button that rasterises the whole poster to one
     PNG via an embedded html2canvas, so the page stays self-contained/offline.
@@ -1397,15 +1484,17 @@ def download_runtime() -> str:
         f"<script>{lib}</script>\n"
         "<script>(function(){var b=document.getElementById('dl-page-btn');"
         "if(!b||!window.html2canvas)return;"
+        f"{HERO_FLATTEN_JS}"
         "b.addEventListener('click',function(){var p=document.querySelector('.poster');if(!p)return;"
-        "var t=b.textContent;b.textContent='生成中…';b.disabled=true;"
+        "var t=b.textContent;b.textContent='生成中…';b.disabled=true;var restore=null;"
+        "flattenHeroOverlay(document).then(function(rf){restore=rf;"
         "var h=p.scrollHeight,s=Math.min(2,Math.max(0.3,32000/h));"
-        "html2canvas(p,{scale:s,backgroundColor:'#dcedff',useCORS:true,logging:false,"
-        "windowWidth:p.scrollWidth,windowHeight:h}).then(function(c){c.toBlob(function(bl){"
+        "return html2canvas(p,{scale:s,backgroundColor:'#dcedff',useCORS:true,logging:false,"
+        "windowWidth:p.scrollWidth,windowHeight:h});}).then(function(c){if(restore)restore();c.toBlob(function(bl){"
         "var a=document.createElement('a');a.href=URL.createObjectURL(bl);"
         "a.download=(document.title||'page')+'.png';document.body.appendChild(a);a.click();a.remove();"
         "setTimeout(function(){URL.revokeObjectURL(a.href);},1500);b.textContent=t;b.disabled=false;},'image/png');"
-        "}).catch(function(e){console.error(e);b.textContent='下载失败，重试';b.disabled=false;});});})();</script>"
+        "}).catch(function(e){if(restore)restore();console.error(e);b.textContent='下载失败，重试';b.disabled=false;});});})();</script>"
     )
 
 
@@ -1479,6 +1568,7 @@ def render_html(docx_path: Path, design_path: Path, font_path: Path | None, upda
 <body>
 <main class="poster auto-doc">
   <section class="hero">
+    <img class="hero-overlay" src="{HERO_OVERLAY_SRC}" alt="头图背景图（在编辑器中双击此处可替换为叠加在红底上的图片）">
     <h1>{hero_title_html(title)}</h1>
     <p class="updated">{esc(updated_label)}</p>
     <div class="hero-mark">OPERATION<br>STANDARDS</div>
