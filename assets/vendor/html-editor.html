@@ -885,15 +885,36 @@ ${Bf}
       }catch(e){ resolve(null); }
     });
   }
+  // html2canvas has NO <video> handling, so a video only appears in the export
+  // when the browser already decoded a frame — which it has NOT inside the editor
+  // iframe, leaving the video blank. So during capture we swap each <video> for an
+  // <img> of its poster (or its decoded frame if available), then restore.
+  function swapVideosForPosters(doc){
+    var swaps=[];
+    var vids=[].slice.call(doc.querySelectorAll('video'));
+    vids.forEach(function(v){
+      var src=v.getAttribute('poster')||'';
+      if(!src && v.videoWidth){ try{ var c=doc.createElement('canvas'); c.width=v.videoWidth; c.height=v.videoHeight;
+        c.getContext('2d').drawImage(v,0,0,c.width,c.height); src=c.toDataURL('image/jpeg',0.85); }catch(e){} }
+      if(!src) return;
+      var img=doc.createElement('img'); img.src=src; img.className=v.className;
+      img.setAttribute('data-ed-vidsub','1');
+      img.style.cssText=v.style.cssText; img.style.display='block'; img.style.width=v.style.width||'100%'; img.style.height='auto';
+      v.parentNode.insertBefore(img,v); var pd=v.style.display; v.style.display='none';
+      swaps.push({v:v,img:img,pd:pd});
+    });
+    return function(){ swaps.forEach(function(s){ if(s.img.parentNode) s.img.parentNode.removeChild(s.img); s.v.style.display=s.pd; }); };
+  }
   function exportPng(btn){
     var ifr=findIframe(), poster=getPoster(ifr);
     if(!ifr||!poster){ alert('请先加载或编辑一个页面再导出图片'); return; }
     var label=btn.textContent; btn.textContent='生成中…'; btn.disabled=true;
     var fn=document.querySelector('.file-name');
     var base=((fn&&fn.textContent)||'export').replace(/\.html?$/i,'')||'export';
-    var restore=null;
+    var restore=null, vrestore=null;
     ensureH2C(ifr).then(function(win){
       return flattenHeroOverlay(ifr.contentDocument).then(function(rf){ restore=rf;
+        vrestore=swapVideosForPosters(ifr.contentDocument);
         var h=poster.scrollHeight, s=Math.min(2,Math.max(0.3,32000/h));
         return win.html2canvas(poster,{scale:s,backgroundColor:'#dcedff',useCORS:true,logging:false,
           windowWidth:poster.scrollWidth, windowHeight:h,
@@ -902,8 +923,8 @@ ${Bf}
             for(var i=0;i<ns.length;i++){ ns[i].classList.remove('ed-hover','ed-selected','ed-editing'); ns[i].removeAttribute('contenteditable'); } }
         });
       });
-    }).then(function(c){ if(restore)restore(); download(c, base+'.png'); btn.textContent=label; btn.disabled=false; })
-      .catch(function(e){ if(restore)restore(); console.error(e); alert('导出图片失败：'+((e&&e.message)||e)); btn.textContent=label; btn.disabled=false; });
+    }).then(function(c){ if(vrestore)vrestore(); if(restore)restore(); download(c, base+'.png'); btn.textContent=label; btn.disabled=false; })
+      .catch(function(e){ if(vrestore)vrestore(); if(restore)restore(); console.error(e); alert('导出图片失败：'+((e&&e.message)||e)); btn.textContent=label; btn.disabled=false; });
   }
   function makeBtn(){
     var b=document.createElement('button');

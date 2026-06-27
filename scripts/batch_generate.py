@@ -1471,6 +1471,21 @@ HERO_FLATTEN_JS = (
     "ov.setAttribute('src',flat);setTimeout(done,800);}catch(e){resolve(null);}});}"
 )
 
+# html2canvas has no <video> handling: a video only renders if the browser already
+# decoded a frame. During capture, swap each <video> for an <img> of its poster
+# (or decoded frame) so the video's cover always appears, then restore.
+VIDEO_SWAP_JS = (
+    "function swapVideosForPosters(doc){var swaps=[];"
+    "[].slice.call(doc.querySelectorAll('video')).forEach(function(v){"
+    "var src=v.getAttribute('poster')||'';"
+    "if(!src&&v.videoWidth){try{var c=doc.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;"
+    "c.getContext('2d').drawImage(v,0,0,c.width,c.height);src=c.toDataURL('image/jpeg',0.85);}catch(e){}}"
+    "if(!src)return;var img=doc.createElement('img');img.src=src;img.className=v.className;"
+    "img.style.cssText=v.style.cssText;img.style.display='block';img.style.width=v.style.width||'100%';img.style.height='auto';"
+    "v.parentNode.insertBefore(img,v);var pd=v.style.display;v.style.display='none';swaps.push({v:v,img:img,pd:pd});});"
+    "return function(){swaps.forEach(function(s){if(s.img.parentNode)s.img.parentNode.removeChild(s.img);s.v.style.display=s.pd;});};}"
+)
+
 
 def download_runtime() -> str:
     """A floating "下载整页图片" button that rasterises the whole poster to one
@@ -1484,17 +1499,17 @@ def download_runtime() -> str:
         f"<script>{lib}</script>\n"
         "<script>(function(){var b=document.getElementById('dl-page-btn');"
         "if(!b||!window.html2canvas)return;"
-        f"{HERO_FLATTEN_JS}"
+        f"{HERO_FLATTEN_JS}{VIDEO_SWAP_JS}"
         "b.addEventListener('click',function(){var p=document.querySelector('.poster');if(!p)return;"
-        "var t=b.textContent;b.textContent='生成中…';b.disabled=true;var restore=null;"
-        "flattenHeroOverlay(document).then(function(rf){restore=rf;"
+        "var t=b.textContent;b.textContent='生成中…';b.disabled=true;var restore=null,vrestore=null;"
+        "flattenHeroOverlay(document).then(function(rf){restore=rf;vrestore=swapVideosForPosters(document);"
         "var h=p.scrollHeight,s=Math.min(2,Math.max(0.3,32000/h));"
         "return html2canvas(p,{scale:s,backgroundColor:'#dcedff',useCORS:true,logging:false,"
-        "windowWidth:p.scrollWidth,windowHeight:h});}).then(function(c){if(restore)restore();c.toBlob(function(bl){"
+        "windowWidth:p.scrollWidth,windowHeight:h});}).then(function(c){if(vrestore)vrestore();if(restore)restore();c.toBlob(function(bl){"
         "var a=document.createElement('a');a.href=URL.createObjectURL(bl);"
         "a.download=(document.title||'page')+'.png';document.body.appendChild(a);a.click();a.remove();"
         "setTimeout(function(){URL.revokeObjectURL(a.href);},1500);b.textContent=t;b.disabled=false;},'image/png');"
-        "}).catch(function(e){if(restore)restore();console.error(e);b.textContent='下载失败，重试';b.disabled=false;});});})();</script>"
+        "}).catch(function(e){if(vrestore)vrestore();if(restore)restore();console.error(e);b.textContent='下载失败，重试';b.disabled=false;});});})();</script>"
     )
 
 
