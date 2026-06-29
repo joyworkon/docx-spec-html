@@ -943,6 +943,125 @@ ${Bf}
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',start); else start();
 })();
 </script>
+<style id="ed-blur-style">
+.ed-blur-mask{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100000;display:flex;align-items:center;justify-content:center;}
+.ed-blur-box{background:#fff;border-radius:12px;padding:16px;max-width:92vw;max-height:92vh;display:flex;flex-direction:column;gap:12px;box-shadow:0 12px 44px rgba(0,0,0,.32);font-family:inherit;}
+.ed-blur-head{font-size:14px;color:#333;font-weight:600;}
+.ed-blur-cwrap{overflow:auto;display:flex;justify-content:center;background:#f5f6f8;border-radius:8px;padding:8px;}
+.ed-blur-canvas{cursor:crosshair;display:block;max-width:100%;}
+.ed-blur-ctrl{display:flex;align-items:center;gap:12px;font-size:13px;color:#333;}
+.ed-blur-ctrl .ed-blur-slider{flex:1;}
+.ed-blur-foot{display:flex;align-items:center;gap:8px;}
+.ed-blur-foot .btn{padding:7px 16px;border:1px solid #d9d9d9;border-radius:6px;background:#fff;cursor:pointer;font-size:13px;color:#333;}
+.ed-blur-foot .btn-primary{background:#165dff;color:#fff;border-color:#165dff;}
+</style>
+<script id="ed-blur-runtime">
+(function(){
+  "use strict";
+  var BTN_ID='ed-blur-btn';
+  function findIframe(){ return document.querySelector('iframe.editor-canvas')||document.querySelector('iframe'); }
+  function selectedImage(){
+    var ifr=findIframe(); if(!ifr||!ifr.contentDocument) return null;
+    var el=ifr.contentDocument.querySelector('img.ed-selected');
+    return (el&&el.tagName==='IMG')?{ifr:ifr,img:el}:null;
+  }
+  function norm(r){ return {x:Math.min(r.x0,r.x1),y:Math.min(r.y0,r.y1),w:Math.abs(r.x1-r.x0),h:Math.abs(r.y1-r.y0)}; }
+  function openBlur(ifr,img){
+    var id=img.getAttribute('data-ed-id');
+    if(!id){ alert('无法定位该图片（缺少 id）'); return; }
+    var src=img.getAttribute('src')||img.src;
+    var im=new Image();
+    im.onload=function(){ if(!im.naturalWidth){ alert('图片尺寸无效'); return;} buildModal(ifr,id,im); };
+    im.onerror=function(){ alert('图片加载失败，无法模糊'); };
+    try{ if(/^https?:/i.test(src)) im.crossOrigin='anonymous'; }catch(e){}
+    im.src=src;
+  }
+  function buildModal(ifr,id,im){
+    var nW=im.naturalWidth, nH=im.naturalHeight;
+    var maxW=Math.min(window.innerWidth*0.82,1000), maxH=window.innerHeight*0.66;
+    var scale=Math.min(maxW/nW, maxH/nH, 1);
+    var dW=Math.max(1,Math.round(nW*scale)), dH=Math.max(1,Math.round(nH*scale));
+    var ratio=nW/dW;
+    var mask=document.createElement('div'); mask.className='ed-blur-mask';
+    var box=document.createElement('div'); box.className='ed-blur-box';
+    var head=document.createElement('div'); head.className='ed-blur-head';
+    head.textContent='局部高斯模糊 — 在图上拖拽框选要模糊的区域（可画多个）';
+    box.appendChild(head);
+    var cwrap=document.createElement('div'); cwrap.className='ed-blur-cwrap';
+    var cv=document.createElement('canvas'); cv.width=dW; cv.height=dH; cv.className='ed-blur-canvas';
+    cwrap.appendChild(cv); box.appendChild(cwrap);
+    var ctrl=document.createElement('div'); ctrl.className='ed-blur-ctrl';
+    var lab=document.createElement('label'); lab.textContent='模糊强度：';
+    var val=document.createElement('span'); val.textContent='10'; lab.appendChild(val);
+    var slider=document.createElement('input'); slider.type='range'; slider.min='2'; slider.max='40'; slider.value='10'; slider.className='ed-blur-slider';
+    ctrl.appendChild(lab); ctrl.appendChild(slider); box.appendChild(ctrl);
+    var foot=document.createElement('div'); foot.className='ed-blur-foot';
+    foot.innerHTML='<button class="btn" data-act="undo">撤销框</button><button class="btn" data-act="clear">清空</button><span style="flex:1"></span><button class="btn" data-act="cancel">取消</button><button class="btn btn-primary" data-act="apply">应用</button>';
+    box.appendChild(foot);
+    mask.appendChild(box); document.body.appendChild(mask);
+    var ctx=cv.getContext('2d');
+    var rects=[], drag=null;
+    function radius(){ return parseInt(slider.value,10)||10; }
+    function redraw(){
+      ctx.filter='none'; ctx.clearRect(0,0,dW,dH); ctx.drawImage(im,0,0,dW,dH);
+      rects.concat(drag?[drag]:[]).forEach(function(r){
+        var rr=norm(r); if(rr.w<1||rr.h<1) return;
+        ctx.save(); ctx.beginPath(); ctx.rect(rr.x,rr.y,rr.w,rr.h); ctx.clip();
+        ctx.filter='blur('+radius()+'px)'; ctx.drawImage(im,0,0,dW,dH); ctx.restore();
+        ctx.save(); ctx.filter='none'; ctx.strokeStyle='#165dff'; ctx.lineWidth=2; ctx.setLineDash([6,4]);
+        ctx.strokeRect(rr.x,rr.y,rr.w,rr.h); ctx.restore();
+      });
+    }
+    function pos(e){ var b=cv.getBoundingClientRect(); return {x:(e.clientX-b.left)*(dW/b.width), y:(e.clientY-b.top)*(dH/b.height)}; }
+    cv.addEventListener('mousedown',function(e){ e.preventDefault(); var p=pos(e); drag={x0:p.x,y0:p.y,x1:p.x,y1:p.y}; });
+    function mm(e){ if(!drag)return; var p=pos(e); drag.x1=p.x; drag.y1=p.y; redraw(); }
+    function mu(){ if(!drag)return; var rr=norm(drag); if(rr.w>4&&rr.h>4) rects.push(drag); drag=null; redraw(); }
+    window.addEventListener('mousemove',mm); window.addEventListener('mouseup',mu);
+    slider.addEventListener('input',function(){ val.textContent=slider.value; redraw(); });
+    function close(){ window.removeEventListener('mousemove',mm); window.removeEventListener('mouseup',mu); mask.remove(); }
+    mask.addEventListener('mousedown',function(e){ if(e.target===mask) close(); });
+    foot.addEventListener('click',function(e){
+      var act=e.target.getAttribute&&e.target.getAttribute('data-act'); if(!act)return;
+      if(act==='undo'){ rects.pop(); redraw(); }
+      else if(act==='clear'){ rects=[]; redraw(); }
+      else if(act==='cancel'){ close(); }
+      else if(act==='apply'){ apply(); }
+    });
+    function apply(){
+      if(!rects.length){ close(); return; }
+      var out=document.createElement('canvas'); out.width=nW; out.height=nH;
+      var o=out.getContext('2d'); o.filter='none'; o.drawImage(im,0,0,nW,nH);
+      rects.forEach(function(r){
+        var rr=norm(r);
+        o.save(); o.beginPath(); o.rect(rr.x*ratio,rr.y*ratio,rr.w*ratio,rr.h*ratio); o.clip();
+        o.filter='blur('+(radius()*ratio)+'px)'; o.drawImage(im,0,0,nW,nH); o.restore();
+      });
+      var data;
+      try{ data=out.toDataURL('image/png'); }
+      catch(err){ alert('该图片受跨域限制无法处理（外链图片）。请改用本地/内联图片。'); return; }
+      if(data.length>6*1024*1024){ try{ data=out.toDataURL('image/jpeg',0.92); }catch(e){} }
+      ifr.contentWindow.postMessage({source:'ed-host',type:'REPLACE_IMAGE',payload:{id:id,src:data}},'*');
+      close();
+    }
+    redraw();
+  }
+  function ensureBtn(){
+    var right=document.querySelector('.toolbar-right');
+    if(!right||document.getElementById(BTN_ID)) return;
+    var b=document.createElement('button'); b.id=BTN_ID; b.type='button'; b.className='btn';
+    b.textContent='局部模糊'; b.title='给选中图片的某个区域加高斯模糊';
+    b.addEventListener('click',function(){
+      var s=selectedImage();
+      if(!s){ alert('请先在画布中单击选中一张图片，再点「局部模糊」'); return; }
+      openBlur(s.ifr,s.img);
+    });
+    var primary=right.querySelector('.btn-primary');
+    if(primary) right.insertBefore(b,primary); else right.appendChild(b);
+  }
+  function start(){ ensureBtn(); new MutationObserver(ensureBtn).observe(document.body,{childList:true,subtree:true}); }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',start); else start();
+})();
+</script>
   </head>
   <body>
     <div id="root"></div>
