@@ -343,6 +343,41 @@ body { background: #737373; }
 }
 /* Inside a white module, leave room between the bar and the table below it. */
 .poster.auto-doc .text-block .metric-emphasis { margin: 0 0 12px; }
+/* metric-emphasis multi-item: several indicators inline, separated by a left border */
+.poster.auto-doc .metric-item { display: inline-flex; align-items: center; gap: 8px; }
+.poster.auto-doc .metric-item + .metric-item { border-left: 1px solid #cfe8d4; padding-left: 12px; margin-left: 4px; }
+
+/* 4-column optimisation matrix (优化内容/案例/优化前/优化后), first column groups rows via rowspan */
+.poster.auto-doc .compare-matrix { width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff; }
+.poster.auto-doc .compare-matrix th, .poster.auto-doc .compare-matrix td { border: 1px solid #e5e5e5; padding: 12px; vertical-align: middle; text-align: center; }
+.poster.auto-doc .compare-matrix thead th { background: #ff2b22; color: #fff; font-weight: 700; }
+.poster.auto-doc .compare-matrix .cm-group { background: #f7f7f7; font-weight: 700; }
+.poster.auto-doc .compare-matrix .doc-image { width: 100%; max-height: 300px; object-fit: contain; }
+
+/* material-type table (素材图类型/内容要求/示例), 「示例」header spans two image columns */
+.poster.auto-doc .material-table { width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff; }
+.poster.auto-doc .material-table th, .poster.auto-doc .material-table td { border: 1px solid #e5e5e5;padding: 12px; vertical-align: middle; }
+.poster.auto-doc .material-table thead th { background: #ff2b22; color: #fff; font-weight: 700; text-align: center; }
+.poster.auto-doc .material-table .mt-type { text-align: center; font-weight: 700; }
+.poster.auto-doc .material-table .mt-req { text-align: left; }
+.poster.auto-doc .material-table .mt-eg { text-align: center; }
+.poster.auto-doc .material-table .mt-eg .doc-image { width: 100%; max-height: 220px; object-fit: contain; }
+.poster.auto-doc .material-table col.mt-c1 { width: 16%; } .poster.auto-doc .material-table col.mt-c2 { width: 34%; }
+.poster.auto-doc .material-table col.mt-c3 { width: 25%; } .poster.auto-doc .material-table col.mt-c4 { width: 25%; }
+
+/* attribute / keyword-priority table: 2-col grey-red-grey text-only grid */
+.poster.auto-doc .attr-table { width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff; }
+.poster.auto-doc .attr-table td { border: 1px solid #e5e5e5; padding: 14px; text-align: center; font-weight: 700; }
+.poster.auto-doc .attr-table .at-grey { background: #f2f2f2; color: #333; }
+.poster.auto-doc .attr-table .at-red { background: #ff2b22; color: #fff; }
+
+/* tag-example image: doubled width (品质标签示例) */
+.poster.auto-doc .tag-example-table .doc-image { width: 100%; max-height: 600px; object-fit: contain; }
+
+/* layout placeholder for 首图模块化 schematic */
+.poster.auto-doc .layout-holder { display: flex; align-items: center; justify-content: center; min-height: 200px; border: 2px dashed #d9d9d9; border-radius: 10px; background: #fafafa; overflow: hidden; }
+.poster.auto-doc .layout-holder .doc-image { width: 100%; max-height: 520px; object-fit: contain; }
+
 
 /* Before / after compare (优化前 grey, 优化后 red) */
 .poster.auto-doc .ba-compare {
@@ -751,6 +786,25 @@ def document_uses_heading_styles(blocks: list[ParagraphBlock | TableBlock]) -> b
 
 
 CHAPTER_LABEL_SUFFIXES = ("展示", "示例", "布局", "流程", "说明", "组合")
+
+# 商品信息运营规范的一级模块是固定且有限的这 8 个（顺序固定）。文档正文里
+# 模块标题写成 `1、主图规�`…`8、属性`，正文要点也用 `1、2、3、` 编号——脚本
+# 无法凭编号区分，故用白名单精确锚定：只有模块名命中白名单的 `N、xxx` 才是��节，
+# 其余 `N、xxx`（如 `1、视频画面需清晰…`）一律留作正文，不升级为章节。
+# 无编号短语（如 `卖点选词优先级`）也不得升级为第 9 个模块。
+SPEC_MODULE_NAMES = (
+    "主图规范", "主图视频", "长标题", "短标题",
+    "通用卖点", "主推标签", "品质标签", "属性",
+)
+# 剥掉可能的 `N、`/`（一）`/`一、` 前缀后，与白名单精确比对用的正则
+MODULE_NUM_PREFIX_RE = re.compile(r"^\s*[（(]?[0-9一二三四五六七八九十]+[）)、.．]\s*")
+
+
+def spec_module_core(text: str) -> str:
+    """剥掉一级编号前缀并去掉 （…X%）指标后，返回可与 SPEC_MODULE_NAMES 比对的核心词。"""
+    core = MODULE_NUM_PREFIX_RE.sub("", text.strip())
+    core = TITLE_METRIC_RE.sub("", core).strip()
+    return core.rstrip("：:").strip()
 TITLE_PAREN_RE = re.compile(r"[（(][^（）()]*[)）]\s*$")
 TITLE_METRIC_RE = re.compile(r"[（(]\s*([^（）()]*?\d+(?:\.\d+)?\s*%)\s*[)）]\s*$")
 
@@ -781,6 +835,14 @@ def is_section_heading(block: ParagraphBlock, heading_styles_present: bool = Fal
     # A paragraph ending in a colon is a label/lead-in, never a chapter title.
     if text.endswith(("：", ":")):
         return False
+    # 固定 8 模块白名单：剥掉 `N、`/`（一）` 前缀后精确命中白名单 → 一定是一级模块，
+    # 即使带阿拉伯数字前缀（1、主图规范）也认，且优先于下面所有启发式。
+    module_core = spec_module_core(text)
+    if module_core in SPEC_MODULE_NAMES:
+        return True
+    # 「整体规范综述」这类概述卡保留识别。
+    if section_core(text).startswith("整体规范"):
+        return True
     # Explicit chapter numerals always win, including bracketed forms like （一）.
     if re.match(r"^[（(]?[一二三四五六七八九十]+[）)、.．]", text):
         return True
@@ -788,23 +850,10 @@ def is_section_heading(block: ParagraphBlock, heading_styles_present: bool = Fal
         return True
     if re.match(r"^【第[一二三四五六七八九十0-9-]+屏】", text):
         return True
-    # Heuristic fallbacks only fire when the doc has NO real heading styles to
-    # trust. Otherwise they promote in-chapter labels (主图首张, 卖点建议顺序…)
-    # into spurious top-level cards.
-    if heading_styles_present:
-        return False
-    if re.match(r"^[0-9]{1,2}[.、．]\s*[^：:]{1,24}$", text):
-        return True
-    core = section_core(text)
-    # Display / example labels (参数楼层商详页展示, 商品参数展示, 搜索列表页展示…)
-    # are in-chapter content, never their own card.
-    if core.endswith(CHAPTER_LABEL_SUFFIXES):
-        return False
-    top_level_prefixes = ("整体规范", "主图", "主图视频", "长标题", "短标题", "卖点", "参数楼层", "属性", "图文详情")
-    # Match on the core (trailing （…+X%）metric stripped) so chapters like
-    # 长标题（转化率提升+0.42%）are still recognised despite the suffix.
-    if core.startswith(top_level_prefixes) and len(core) <= 12 and "：" not in core and ":" not in core:
-        return True
+    # 关键根治：阿拉伯数字 `N、xxx` 编号段落**不再**无条件升级为章节。
+    # 商品信息运营规范里 `1、视频画面需清晰…`、`2、视频需搭配字幕…` 都是正文
+    # 编号点，只有命中上面 8 模块白名单的 `N、模块名` 才是章节。此处直接不认，
+    # 无编号短语（如 `卖点选词优先级`）也因不在白名单而留作模块内子项。
     return False
 
 
@@ -813,6 +862,8 @@ def clean_section_title(text: str) -> str:
     cleaned = text.strip()
     cleaned = re.sub(r"^[（(][一二三四五六七八九十0-9]+[）)]\s*", "", cleaned)
     cleaned = re.sub(r"^[一二三四五六七八九十]+[、.．]\s*", "", cleaned)
+    # 也剥掉阿拉伯数字一级编号前缀（1、主图规范 → 主图规范），外层已有 01–08 章节号
+    cleaned = re.sub(r"^[0-9]+[、.．]\s*", "", cleaned)
     cleaned = re.sub(r"^第[一二三四五六七八九十0-9]+[章节部分][:：、.．\s]*", "", cleaned)
     cleaned = TITLE_METRIC_RE.sub("", cleaned).strip()  # drop only a （…X%）metric, keep asides like （建议方向）
     cleaned = cleaned.rstrip("：:").strip()
