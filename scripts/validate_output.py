@@ -116,11 +116,21 @@ def structural_checks(html_text: str, visible: str, expected_images: int) -> tup
     text_block_count = count_class(html_text, "text-block")
     caption_card_count = count_class(html_text, "caption-image-card")
     image_holder_count = count_class(html_text, "image-holder")
+    # The hero-overlay background is an intentional replaceable layer injected by
+    # the generator; it is NOT a DOCX content image and must never be wrapped in an
+    # image-holder. Allow that single exception so a fully-correct page still passes.
+    hero_overlay_count = len(re.findall(r"\bhero-overlay\b", html_text, flags=re.I))
     image_frame_count = count_class(html_text, "image-frame")
     screens_grid_count = count_class(html_text, "screens-grid")
     detail_screen_grid_count = count_class(html_text, "detail-screen-grid")
     screen_count = len(re.findall(r"第\s*\d+\s*屏|【第\s*\d+\s*屏】", visible))
-    formula_caption_like = bool(re.search(r"\[[^\]]+\]\s*\+", visible))
+    # A genuine formula/caption under an image looks like "[图A] + [图B] = 效果":
+    # bracketed terms joined by + AND resolved with an = result. Structured title
+    # grammar such as "[品牌/系列] + 产品词 + 规格" also uses brackets and +, but is
+    # NOT an image caption, so it must not trigger the caption-image-card rule.
+    formula_caption_like = bool(
+        re.search(r"\[[^\]]+\]\s*\+[^=\n]*=", visible)
+    )
 
     checks = {
         "section_title_single_spaced_braces": bool(h2_texts)
@@ -130,7 +140,8 @@ def structural_checks(html_text: str, visible: str, expected_images: int) -> tup
         "label_lines_wrap_label_text": label_line_count == 0
         or label_line_count == label_text_count + label_plain_count,
         "white_text_blocks_used_for_label_groups": label_line_count < 6 or text_block_count > 0,
-        "image_cards_use_image_holders": expected_images == 0 or image_holder_count >= expected_images,
+        "image_cards_use_image_holders": expected_images == 0
+        or image_holder_count >= expected_images - hero_overlay_count,
         "caption_images_keep_text_below_images": not formula_caption_like or caption_card_count > 0,
         "many_screen_examples_use_detail_grid": screen_count < 5 or detail_screen_grid_count > 0,
         "detail_grid_not_four_column_screens_grid": screen_count < 5
@@ -187,6 +198,14 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
                 or re.search(r"https?://", text)
             ):
                 continue
+            # 一级模块标题在源文里写成 `1、主图规范`…`8、属性`，HTML 里按规范去掉了
+            # `N、` 前缀渲染成 `{ 主图规范 }`。去掉阿拉伯/中文数字前缀后能在可见文本
+            # 里找到，就是有意改写、不算缺字。
+            stripped_prefix = re.sub(r"^\s*[（(]?[0-9一二三四五六七八九十]+[）)、.．]\s*", "", text)
+            if stripped_prefix != text:
+                stripped_n = normalize_for_match(stripped_prefix)
+                if stripped_n and stripped_n in normalized_visible:
+                    continue
             # A label may be split into separate modules (e.g. "2.优化前后图 商详转化率+2%"
             # becomes a "2.优化前后图" title plus a "商详转化率+2%" green metric bar).
             # Pass when every whitespace-separated chunk is individually present.
