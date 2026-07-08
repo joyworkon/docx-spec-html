@@ -352,7 +352,12 @@ body { background: #737373; }
 .poster.auto-doc .compare-matrix th, .poster.auto-doc .compare-matrix td { border: 1px solid #e5e5e5; padding: 12px; vertical-align: middle; text-align: center; }
 .poster.auto-doc .compare-matrix thead th { background: #ff2b22; color: #fff; font-weight: 700; }
 .poster.auto-doc .compare-matrix .cm-group { background: #f7f7f7; font-weight: 700; }
-.poster.auto-doc .compare-matrix .doc-image { width: 100%; max-height: 300px; object-fit: contain; }
+/* 图片单元格铺满：图片 td 去内边距，holder/图片撑满，与表格上下左右对齐。
+   不用 object-fit/max-height——那会让图小一圈，且 html2canvas 不渲染 object-fit。 */
+.poster.auto-doc .compare-matrix td.cm-img { padding: 0; }
+.poster.auto-doc .compare-matrix td.cm-img .image-holder { margin: 0; width: 100%; min-height: 0; }
+.poster.auto-doc .compare-matrix td.cm-img .doc-image { width: 100%; height: auto; display: block; border-radius: 10px; }
+.poster.auto-doc .compare-matrix .doc-image { width: 100%; height: auto; display: block; }
 
 /* material-type table (素材图类型/内容要求/示例), 「示例」header spans two image columns */
 .poster.auto-doc .material-table { width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff; }
@@ -361,7 +366,11 @@ body { background: #737373; }
 .poster.auto-doc .material-table .mt-type { text-align: center; font-weight: 700; }
 .poster.auto-doc .material-table .mt-req { text-align: left; }
 .poster.auto-doc .material-table .mt-eg { text-align: center; }
-.poster.auto-doc .material-table .mt-eg .doc-image { width: 100%; max-height: 220px; object-fit: contain; }
+/* 示例图单元格铺满：图片 td 去内边距，holder/图片撑满，与表格上下左右对齐。
+   不用 object-fit/max-height——那会让图小一圈，且 html2canvas 不渲染 object-fit。 */
+.poster.auto-doc .material-table td.mt-eg { padding: 0; }
+.poster.auto-doc .material-table td.mt-eg .image-holder { margin: 0; width: 100%; min-height: 0; }
+.poster.auto-doc .material-table .mt-eg .doc-image { width: 100%; height: auto; display: block; border-radius: 10px; }
 .poster.auto-doc .material-table col.mt-c1 { width: 16%; } .poster.auto-doc .material-table col.mt-c2 { width: 34%; }
 .poster.auto-doc .material-table col.mt-c3 { width: 25%; } .poster.auto-doc .material-table col.mt-c4 { width: 25%; }
 
