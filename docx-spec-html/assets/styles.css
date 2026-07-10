@@ -1,6 +1,6 @@
 @font-face {
   font-family: "JINGDONGLangZhengTi1-Bold";
-  src: url("JINGDONGLangZhengTi1-Bold.ttf") format("truetype");
+  src: url("fonts/JINGDONGLangZhengTi1-Bold.woff2") format("woff2");
   font-weight: 700;
   font-style: normal;
   font-display: block;
@@ -27,7 +27,7 @@ html, body {
   position: relative;
   height: 520px;
   padding: 72px 44px 0;
-  background: #FF2B22;        /* 纯品牌红单色，无渐变、无装饰 */
+  background: #FF2B22;        /* 纯品牌红单色，无渐变、无装饰光斑/斜纹 */
   color: #fff;
   overflow: hidden;
 }
@@ -569,3 +569,882 @@ html, body {
 @media (max-width: 1280px) {
   .poster { transform-origin: top left; }
 }
+
+
+/* ===== VS 对比展示 ===== */
+.vs-grid {
+  display: grid;
+  grid-template-columns: 1fr 80px 1fr;
+  gap: 16px;
+  align-items: stretch;
+  margin-top: 16px;
+}
+.vs-col {
+  background: #fff;
+  border-radius: 10px;
+  padding: 22px 22px 26px;
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+}
+.vs-tag {
+  align-self: flex-start;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 16px;
+}
+.vs-tag.high { background: #111; }
+.vs-tag.mid { background: #ff2b22; }
+.vs-col h4 {
+  margin: 0 0 10px;
+  font-size: 22px;
+  line-height: 1.2;
+  font-weight: 600;
+  color: #111;
+}
+.vs-col p {
+  margin: 0 0 12px;
+  font-size: 17px;
+  line-height: 1.45;
+  color: #333;
+}
+.vs-image {
+  margin-top: auto;
+  height: 140px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+}
+.vs-image.scene {
+  background: linear-gradient(120deg, #b9c8d3, #e0e8ee 55%, #aab8c4);
+  color: #333;
+}
+.vs-image.param {
+  background: linear-gradient(135deg, #f4f4f4, #d0d0d0);
+  color: #555;
+}
+.vs-divider {
+  display: grid;
+  place-items: center;
+  color: #ff2b22;
+  font-size: 36px;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+/* ===== 5 帧展示 ===== */
+.frames-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+  margin-top: 18px;
+}
+.frame {
+  background: #fff;
+  border-radius: 10px;
+  padding: 16px 14px 18px;
+  display: flex;
+  flex-direction: column;
+}
+.frame-no {
+  font-size: 14px;
+  line-height: 1.2;
+  font-weight: 600;
+  color: #ff2b22;
+  margin-bottom: 6px;
+  letter-spacing: 0.08em;
+}
+.frame-title {
+  font-size: 19px;
+  line-height: 1.2;
+  font-weight: 600;
+  color: #111;
+  margin-bottom: 10px;
+}
+.frame-desc {
+  font-size: 14px;
+  line-height: 1.4;
+  color: #555;
+  flex: 1;
+}
+.frame-img {
+  margin-top: 12px;
+  height: 110px;
+  border-radius: 6px;
+  background: #e8e8e8;
+  display: grid;
+  place-items: center;
+  color: #8a8a8a;
+  font-size: 14px;
+}
+
+/* ===== 标题示例展示 ===== */
+.title-demo {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 18px;
+  align-items: stretch;
+  margin-top: 18px;
+}
+.title-demo + .title-demo { margin-top: 18px; }
+.title-label {
+  background: #ff2b22;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 22px;
+  line-height: 1.2;
+  font-weight: 600;
+  text-align: center;
+  padding: 18px 8px;
+}
+.title-label small {
+  display: block;
+  margin-top: 6px;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  opacity: 0.92;
+}
+.title-content {
+  background: #fff;
+  border-radius: 10px;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+}
+.title-formula {
+  font-size: 17px;
+  line-height: 1.4;
+  font-weight: 600;
+  color: #555;
+}
+.title-formula em {
+  font-style: normal;
+  color: #ff2b22;
+}
+.title-example {
+  display: inline;
+  align-self: flex-start;
+  font-size: 19px;
+  line-height: 1.45;
+  font-weight: 600;
+  color: #111;
+  background: linear-gradient(transparent 58%, rgba(255,43,34,0.2) 58%);
+  border-radius: 3px;
+  padding: 0 4px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+.title-meta {
+  font-size: 15px;
+  line-height: 1.4;
+  color: #8a8a8a;
+}
+
+/* ===== 系列品工具：整改前后 ===== */
+.bind-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.bind-cell {
+  background: #f1f1f1;
+  border-radius: 6px;
+  padding: 14px 8px;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.25;
+  font-weight: 600;
+  color: #333;
+}
+.bind-cell .price {
+  display: block;
+  margin-top: 6px;
+  color: #ff2b22;
+  font-size: 16px;
+}
+.bind-label {
+  height: 44px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+.bind-label.before { background: #f1f1f1; color: #555; }
+.bind-label.after { background: #ff2b22; color: #fff; }
+.bind-note {
+  font-size: 14px;
+  line-height: 1.4;
+  color: #8a8a8a;
+  margin-top: 8px;
+  text-align: center;
+}
+
+/* ===== Word 三列表格：分类 / 内容要求 / 示例 ===== */
+.word-table-spec {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: 126px fit-content(410px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+.word-table-head,
+.word-table-row {
+  display: contents;
+}
+.word-table-head span {
+  display: grid;
+  place-items: center;
+  min-height: 38px;
+  border-radius: 8px;
+  background: #ff2b22;
+  color: #fff;
+  font-size: 17px;
+  line-height: 1;
+  font-weight: 600;
+}
+.word-table-cell {
+  background: #f7f7f7;
+  border-radius: 10px;
+  padding: 16px;
+  min-height: 260px;
+}
+.word-table-main {
+  display: grid;
+  place-items: center;
+}
+.word-table-main span {
+  display: inline-block;
+  color: #111;
+  font-size: 21px;
+  line-height: 1.1;
+  font-weight: 600;
+  background: linear-gradient(transparent 58%, rgba(255,43,34,0.2) 58%);
+  border-radius: 3px;
+  padding: 0 4px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+.word-table-req .source-list {
+  margin-left: 0;
+}
+.word-table-req {
+  display: grid;
+  align-items: center;
+}
+.word-table-req .source-list li {
+  font-size: 17px;
+  line-height: 1.38;
+  white-space: nowrap;
+}
+.word-table-example {
+  display: grid;
+  place-items: center;
+}
+.word-table-example .image-holder {
+  min-height: 230px;
+  width: 100%;
+  display: grid;
+  place-items: center;
+}
+.word-table-example .doc-image {
+  width: auto;
+  max-width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+}
+
+/* ===== 商详结构：屏次展示变体 ===== */
+.screen-mock.scene {
+  background: linear-gradient(180deg, #e4dccc, #f5edd9);
+  border-color: #c9b890;
+  color: #6b5d3a;
+}
+.screen-mock.compare {
+  background:
+    repeating-linear-gradient(0deg, transparent 0 20px, #e8e8e8 20px 21px),
+    #fff;
+  border-color: #cfcfcf;
+}
+
+
+/* ===== Generic DOCX generator additions ===== */
+body { background: #737373; }
+.poster.auto-doc .hero { height: 500px; }
+.poster.auto-doc .hero h1 { max-width: 760px; }
+.poster.auto-doc .hero + .card { margin-top: -75px; }
+.poster.auto-doc .gray-panel > * + * { margin-top: 18px; }
+.poster.auto-doc .plain-block p {
+  margin: 0;
+  font-size: 19px;
+  line-height: 1.55;
+  font-weight: 400;
+}
+.poster.auto-doc .plain-block p + p { margin-top: 10px; }
+.poster.auto-doc .image-holder {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+}
+.poster.auto-doc .image-frame .image-holder { margin-top: 10px; }
+.poster.auto-doc .wide-image .doc-image {
+  width: auto;
+  max-width: 100%;
+  max-height: 560px;
+  object-fit: contain;
+}
+.poster.auto-doc .doc-table-wrap {
+  background: #fff;
+  border-radius: 10px;
+  padding: 18px;
+}
+.poster.auto-doc .doc-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 8px;
+  table-layout: fixed;
+}
+.poster.auto-doc .doc-table th,
+.poster.auto-doc .doc-table td {
+  vertical-align: middle;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 16px;
+  line-height: 1.45;
+}
+.poster.auto-doc .doc-table th {
+  background: #ff2b22;
+  color: #fff;
+  font-weight: 600;
+  text-align: center;
+}
+.poster.auto-doc .doc-table td { background: #f7f7f7; }
+.poster.auto-doc .doc-table .doc-image {
+  width: auto;
+  max-width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+}
+
+/* Grey-square caption for example images (no red square, no highlight) */
+.poster.auto-doc .caption-line {
+  position: relative;
+  margin: 0;
+  padding-left: 25px;
+  color: #555;
+  font-size: 17px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+.poster.auto-doc .caption-line::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  background: #d8d8d8;
+}
+.poster.auto-doc .text-block .caption-line { margin-top: 14px; }
+.poster.auto-doc .text-block .image-holder { margin-top: 10px; }
+/* Sub-level indent: example caption + images sit one level under their label,
+   aligned with .source-list (28px). */
+.poster.auto-doc .caption-line.indent { margin-left: 28px; }
+.poster.auto-doc .image-holder.indent { margin-left: 28px; }
+/* Third hierarchy level (Word ilvl>=1): deeper indent + hollow grey square. */
+.poster.auto-doc .source-list li.deep { margin-left: 28px; }
+.poster.auto-doc .source-list li.deep::before {
+  background: transparent;
+  border: 2px solid #c9c9c9;
+}
+
+/* Half-page-width images (used in 图文详情) */
+.poster.auto-doc .half-image .doc-image {
+  width: 100%;
+  max-width: 600px;
+  height: auto;
+  object-fit: contain;
+}
+
+/* Example images under a label (e.g. 短标题「示例：」): half the container
+   width and all equal width, regardless of each picture's aspect ratio. */
+.poster.auto-doc .sample-image .doc-image {
+  width: 50%;
+  max-width: 50%;
+  height: auto;
+  object-fit: contain;
+}
+
+/* Module-layout schematic: a clean, watermark-free redraw of the
+   "首张主图模块化布局图" reference image. The system is layout-AGNOSTIC: the
+   container fixes only the yellow fill + red border; the actual block positions,
+   sizes and wording come from the reference image. A model with vision must read
+   the real image, place each .ml-block on the grid to mirror the source's row /
+   column split and relative areas, and write the verbatim on-image text. */
+/* 首张主图模块化布局重绘：黄底红框容器；内部用 .ml-grid 网格 + .ml-block 色块，
+   每块的行列位置/跨度由模型按"那张图"的真实布局用内联 grid-column/grid-row 设定，
+   不再写死京东模板。每块用一种明显区分的颜色（黄底/红框固定，其余各异），文字居中。 */
+.poster.auto-doc .module-layout {
+  max-width: 620px;        /* keep the source schematic's portrait proportion */
+  margin: 0 auto;
+  background: #fff8e1;     /* fixed light-yellow fill */
+  border: 2px solid #ff2b22;  /* fixed red border */
+  border-radius: 14px;
+  padding: 16px;
+}
+/* The grid: the model sets grid-template-columns / -rows (and gap) inline to
+   reproduce the reference image's split, e.g. style="grid-template-columns:1fr 2fr". */
+.poster.auto-doc .module-layout .ml-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.poster.auto-doc .module-layout .ml-block {
+  display: grid;
+  place-items: center;
+  text-align: center;       /* every block's text is centered */
+  border-radius: 10px;
+  padding: 18px 14px;
+  line-height: 1.3;
+  font-weight: 700;
+  font-size: 22px;
+}
+.poster.auto-doc .module-layout .ml-lg { font-size: 34px; }   /* emphasize the main product */
+.poster.auto-doc .module-layout .ml-tall { min-height: 280px; }
+/* Distinct fills the model assigns so neighbouring blocks stay clearly separated. */
+.poster.auto-doc .module-layout .ml-c1 { background: #cfe6ff; color: #134a73; }  /* blue */
+.poster.auto-doc .module-layout .ml-c2 { background: #ffe0b3; color: #7a4a12; }  /* orange */
+.poster.auto-doc .module-layout .ml-c3 { background: #d7f0d8; color: #1f5f2a; }  /* green */
+.poster.auto-doc .module-layout .ml-c4 { background: #e7e0f5; color: #3a2f78; }  /* purple */
+.poster.auto-doc .module-layout .ml-c5 { background: #ffd6e0; color: #8a2741; }  /* pink */
+.poster.auto-doc .module-layout .ml-c6 { background: #fff3b0; color: #7a6512; }  /* amber */
+.poster.auto-doc .module-layout .ml-c7 { background: #cdeeea; color: #0f5b54; }  /* teal */
+.poster.auto-doc .module-layout .ml-c8 { background: #f6d9c0; color: #8a4a1f; }  /* tan */
+
+/* 主图视频 play card — 「点击播放」 + play icon (solid dark-grey circle with a
+   hollow knocked-out triangle), dark grey on a light-pink ground, centred. */
+.poster.auto-doc .video-demo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 40px 24px;
+  border-radius: 10px;
+  background: #fbe2ec;
+}
+.poster.auto-doc .video-demo .vd-text {
+  font-size: 30px;
+  font-weight: 700;
+  color: #555;
+}
+.poster.auto-doc .video-demo .vd-icon { width: 52px; height: 52px; display: block; }
+.poster.auto-doc .video-case-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 14px;
+  align-items: stretch;
+}
+.poster.auto-doc .video-case-copy,
+.poster.auto-doc .video-case-media {
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.poster.auto-doc .video-case-head {
+  padding: 12px 18px;
+  background: #f1f1f1;
+  text-align: center;
+  font-size: 24px;
+  font-weight: 700;
+}
+.poster.auto-doc .video-case-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
+  padding: 22px 24px;
+  background: #f7f7f7;
+}
+.poster.auto-doc .video-case-media {
+  gap: 12px;
+  padding: 14px;
+  background: #fbe2ec;
+}
+.poster.auto-doc .video-case-media .video-demo { padding: 18px 12px; }
+.poster.auto-doc .video-case-media .image-holder { margin: 0; min-height: 0; }
+.poster.auto-doc .video-case-media .doc-image { width: 100%; height: auto; border-radius: 8px; }
+
+/* Conversion-metric emphasis bar: white fill, green outline, centred.
+   Black label + green "+X%" with an up-arrow. */
+.poster.auto-doc .metric-emphasis {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  margin: 0;
+  padding: 18px 24px;
+  border: 2px solid #47b250;
+  border-radius: 14px;
+  background: #fff;
+  font-size: 24px;
+  font-weight: 700;
+}
+.poster.auto-doc .metric-emphasis .metric-text {
+  color: #111;
+  line-height: 1;
+}
+.poster.auto-doc .metric-emphasis .metric-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #47b250;
+  font-size: 40px;
+  font-weight: 800;
+  line-height: 1;
+}
+.poster.auto-doc .metric-emphasis .metric-arrow {
+  height: 34px;
+  width: auto;
+  display: block;
+}
+/* Inside a white module, leave room between the bar and the table below it. */
+.poster.auto-doc .text-block .metric-emphasis { margin: 0 0 12px; }
+/* metric-emphasis multi-item: several indicators inline, separated by a left border */
+.poster.auto-doc .metric-item { display: inline-flex; align-items: center; gap: 8px; }
+.poster.auto-doc .metric-item + .metric-item { border-left: 1px solid #cfe8d4; padding-left: 12px; margin-left: 4px; }
+
+/* 4-column optimisation matrix (优化内容/案例/优化前/优化后), first column groups rows via rowspan */
+.poster.auto-doc .compare-matrix { width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff; }
+.poster.auto-doc .compare-matrix th, .poster.auto-doc .compare-matrix td { border: 1px solid #e5e5e5; padding: 12px; vertical-align: middle; text-align: center; }
+.poster.auto-doc .compare-matrix thead th { background: #ff2b22; color: #fff; font-weight: 700; }
+.poster.auto-doc .compare-matrix .cm-group { background: #f7f7f7; font-weight: 700; }
+.poster.auto-doc .compare-matrix col.cm-c1 { width: 22%; }
+.poster.auto-doc .compare-matrix col.cm-c2 { width: 12%; }
+.poster.auto-doc .compare-matrix col.cm-c3,
+.poster.auto-doc .compare-matrix col.cm-c4 { width: 33%; }
+.poster.auto-doc .compare-matrix .cm-case { background: #f7f7f7; font-weight: 600; white-space: nowrap; }
+.poster.auto-doc .compare-matrix .cm-text { background: #f7f7f7; text-align: left; }
+.poster.auto-doc .compare-matrix .cm-text p { margin: 0; }
+.poster.auto-doc .compare-matrix .cm-text p + p { margin-top: 8px; }
+/* 图片单元格铺满：图片 td 去内边距，holder/图片撑满，与表格上下左右对齐。
+   不用 object-fit/max-height——那会让图小一圈，且 html2canvas 不渲染 object-fit。 */
+.poster.auto-doc .compare-matrix td.cm-img { padding: 0; }
+.poster.auto-doc .compare-matrix td.cm-img .image-holder { margin: 0; width: 100%; min-height: 0; }
+.poster.auto-doc .compare-matrix td.cm-img .doc-image { width: 100%; height: auto; display: block; border-radius: 10px; }
+.poster.auto-doc .compare-matrix .doc-image { width: 100%; height: auto; display: block; }
+
+/* material-type table (素材图类型/内容要求/示例), 「示例」header spans two image columns */
+.poster.auto-doc .material-table { width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff; }
+.poster.auto-doc .material-table th, .poster.auto-doc .material-table td { border: 1px solid #e5e5e5;padding: 12px; vertical-align: middle; }
+.poster.auto-doc .material-table thead th { background: #ff2b22; color: #fff; font-weight: 700; text-align: center; }
+.poster.auto-doc .material-table .mt-type { text-align: center; font-weight: 700; }
+.poster.auto-doc .material-table .mt-req { text-align: left; }
+.poster.auto-doc .material-table .mt-eg { text-align: center; }
+/* 示例图单元格铺满：图片 td 去内边距，holder/图片撑满，与表格上下左右对齐。
+   不用 object-fit/max-height——那会让图小一圈，且 html2canvas 不渲染 object-fit。 */
+.poster.auto-doc .material-table td.mt-eg { padding: 0; }
+.poster.auto-doc .material-table td.mt-eg .image-holder { margin: 0; width: 100%; min-height: 0; }
+.poster.auto-doc .material-table .mt-eg .doc-image { width: 100%; height: auto; display: block; border-radius: 10px; }
+.poster.auto-doc .material-table col.mt-c1 { width: 16%; } .poster.auto-doc .material-table col.mt-c2 { width: 34%; }
+.poster.auto-doc .material-table col.mt-c3 { width: 25%; } .poster.auto-doc .material-table col.mt-c4 { width: 25%; }
+
+/* attribute / keyword-priority table: 2-col grey-red-grey text-only grid */
+.poster.auto-doc .attr-table { width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff; }
+.poster.auto-doc .attr-table th,
+.poster.auto-doc .attr-table td { border: 1px solid #e5e5e5; padding: 14px; text-align: center; font-weight: 700; }
+.poster.auto-doc .attr-table .at-grey { background: #f2f2f2; color: #333; }
+.poster.auto-doc .attr-table .at-red { background: #ff2b22; color: #fff; }
+.poster.auto-doc .attr-table .attr-head-gray { background: #f2f2f2; color: #333; }
+.poster.auto-doc .attr-table .attr-head-red { background: #ff2b22; color: #fff; }
+.poster.auto-doc .attr-table .attr-img { padding: 8px; background: #f7f7f7; }
+.poster.auto-doc .attr-table .attr-img .image-holder { margin: 0; min-height: 0; }
+.poster.auto-doc .attr-table .attr-img .doc-image { width: 100%; height: auto; border-radius: 8px; }
+
+/* tag-example image: doubled width (品质标签示例) */
+.poster.auto-doc .tag-example-table .doc-image { width: 100%; max-height: 600px; object-fit: contain; }
+
+/* layout placeholder for 首图模块化 schematic */
+.poster.auto-doc .layout-holder { display: flex; align-items: center; justify-content: center; min-height: 200px; border: 2px dashed #d9d9d9; border-radius: 10px; background: #fafafa; overflow: hidden; }
+.poster.auto-doc .layout-holder .doc-image { width: 100%; max-height: 520px; object-fit: contain; }
+
+
+/* Before / after compare (优化前 grey, 优化后 red) */
+.poster.auto-doc .ba-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.poster.auto-doc .ba-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.poster.auto-doc .ba-head {
+  border-radius: 8px;
+  padding: 10px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 600;
+}
+.poster.auto-doc .ba-before { background: #f1f1f1; color: #555; }
+.poster.auto-doc .ba-after { background: #ff2b22; color: #fff; }
+.poster.auto-doc .ba-col .image-holder { min-height: 0; }
+.poster.auto-doc .ba-text { margin: 0; font-size: 15px; line-height: 1.45; color: #333; }
+
+/* Three-column spec table: 主图 narrowest, 内容要求 ~2x, 示例 half width */
+.poster.auto-doc .spec-table {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.poster.auto-doc .spec-row {
+  display: grid;
+  grid-template-columns: 1fr 2fr 3fr;
+  gap: 8px;
+  align-items: stretch;
+}
+.poster.auto-doc .spec-cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  background: #f7f7f7;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 16px;
+  line-height: 1.45;
+  color: #333;
+}
+.poster.auto-doc .spec-head .spec-cell {
+  background: #ff2b22;
+  color: #fff;
+  font-weight: 600;
+  text-align: center;
+  align-items: center;
+}
+.poster.auto-doc .spec-cell .image-holder {
+  min-height: 0;
+  width: 100%;
+}
+.poster.auto-doc .spec-cell .doc-image {
+  /* Equal width via 100%, with height:auto driving the true aspect ratio.
+     No max-height / object-fit: those force a wrong-ratio box that html2canvas
+     (which ignores object-fit) would squish in the downloaded PNG. */
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.edit-toolbar {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 9999;
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(17, 17, 17, 0.88);
+  color: #fff;
+  font-family: "MiSans", "Microsoft YaHei", "PingFang SC", sans-serif;
+}
+.edit-toolbar button {
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: #ff2b22;
+  color: #fff;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.edit-toolbar button.secondary { background: #555; }
+.dl-page-btn {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 9999;
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 18px;
+  background: #ff2b22;
+  color: #fff;
+  font-family: "MiSans", "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+.dl-page-btn[disabled] { opacity: 0.6; cursor: default; }
+.edit-page-btn {
+  position: fixed;
+  right: 168px;      /* sit to the left of 下载整页图片 so they don't overlap */
+  bottom: 18px;
+  z-index: 9999;
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 18px;
+  background: #1f2329;
+  color: #fff;
+  font-family: "MiSans", "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+body.editing [contenteditable="true"] {
+  outline: 2px dashed rgba(255, 43, 34, 0.75);
+  outline-offset: 3px;
+  cursor: text;
+}
+
+/* ===== Card body copy scaled ~1.5x (to match the target screenshot) =====
+   Only the cards' body content grows; the hero and the title bar
+   (.section-head: chapter number, { 标题 }, INTRODUCTION) keep their sizes.
+   List dots, indents and module spacing scale with the text so proportions
+   stay balanced. Higher specificity (.poster.auto-doc .class) overrides the
+   §17 / base sizes above. */
+
+/* 1) Body font sizes */
+.poster.auto-doc .lead { font-size: 28px; }
+.poster.auto-doc .plain-block p { font-size: 28px; }
+.poster.auto-doc .red-list li,
+.poster.auto-doc .red-list b,
+.poster.auto-doc .red-list p { font-size: 28px; }
+.poster.auto-doc .label-line { font-size: 28px; }
+.poster.auto-doc .source-list li { font-size: 28px; }
+.poster.auto-doc .source-list b { font-size: 28px; }
+/* All text that follows a red-square title shares ONE size (28px): list items,
+   sub-captions ("示例图：") and example lines. Table cells keep their own
+   tighter tier below. */
+.poster.auto-doc .example-line { font-size: 28px; }
+.poster.auto-doc .caption-line { font-size: 28px; }
+.poster.auto-doc .doc-table th,
+.poster.auto-doc .doc-table td { font-size: 24px; }
+.poster.auto-doc .spec-cell { font-size: 24px; }
+.poster.auto-doc .ba-head { font-size: 27px; }
+.poster.auto-doc .ba-text { font-size: 23px; }
+/* Metric bar is NOT scaled with the body copy — it keeps the original
+   24/40px text and 34px arrow defined above. */
+
+/* Hero text scaled ~1.5x as well: main title, OPERATION STANDARDS, date.
+   The hero grows taller so the enlarged title, rule and date keep their
+   spacing and the white rule is not covered by the first card. */
+.poster.auto-doc .hero { height: 600px; }
+/* Clean hero background: flat brand-red, no gradient/grid texture/rings/dots. */
+.poster.auto-doc .hero {
+  background: #FF2B22;
+}
+.poster.auto-doc .hero::before,
+.poster.auto-doc .robot-deco,
+.poster.auto-doc .path-line,
+.poster.auto-doc .rings,
+.poster.auto-doc .ring { display: none; }
+/* Replaceable hero background overlay: a transparent image layered ON TOP of the
+   flat red but BEHIND the title text, and BLENDED with the red (mix-blend-mode)
+   so a replaced image composites with the brand red instead of sitting opaquely
+   on top. The red colour underneath is never changed.
+   IMPORTANT: do NOT re-position the hero children here — the base CSS already
+   gives .hero h1/.updated/.hero-mark/.hero-rule z-index:1, and .updated/.hero-mark
+   are position:absolute (pinned to the corners). Overriding them to position
+   relative drops the date/bracket into normal flow and breaks the hero. */
+.poster.auto-doc .hero { position: relative; overflow: hidden; isolation: isolate; }
+.poster.auto-doc .hero-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  z-index: 0;
+  display: block;
+  border: 0;
+  mix-blend-mode: overlay;
+}
+/* Arrows rendered as inline SVG (not a CSS background image) so html2canvas
+   keeps them in the downloaded full-page PNG. */
+.poster.auto-doc .en-label span,
+.poster.auto-doc .hero-rule { background: none; }
+.poster.auto-doc .en-label span > svg,
+.poster.auto-doc .hero-rule > svg { display: block; width: 100%; height: 100%; }
+.poster.auto-doc .hero h1 { font-size: 102px; max-width: 1140px; }
+.poster.auto-doc .hero-mark {
+  font-size: 21px;
+  width: 232px;
+  height: 93px;
+  border-radius: 48px;
+  border-width: 2px;
+}
+.poster.auto-doc .updated { font-size: 27px; }
+/* Bottom-align the update date with the white hero-rule arrow under the title. */
+.poster.auto-doc .updated { bottom: 165px; }
+
+/* 2) List dots scaled (~11 -> 16) */
+.poster.auto-doc .red-list li::before,
+.poster.auto-doc .label-line::before,
+.poster.auto-doc .source-list li::before,
+.poster.auto-doc .red-list li > p:not(.sub-dot)::before,
+.poster.auto-doc .sub-dot::before {
+  width: 16px;
+  height: 16px;
+  top: 13px;
+  border-radius: 4px;
+}
+.poster.auto-doc .caption-line::before {
+  width: 16px;
+  height: 16px;
+  top: 11px;
+  border-radius: 4px;
+}
+
+/* 3) Indents scaled */
+.poster.auto-doc .red-list li,
+.poster.auto-doc .label-line,
+.poster.auto-doc .caption-line { padding-left: 38px; }
+.poster.auto-doc .source-list { margin-left: 42px; }
+.poster.auto-doc .sub-dot { padding-left: 42px; }
+.poster.auto-doc .caption-line.indent,
+.poster.auto-doc .image-holder.indent { margin-left: 42px; }
+
+/* 4) Module spacing scaled */
+.poster.auto-doc .gray-panel > * + * { margin-top: 27px; }
+.poster.auto-doc .text-block { padding: 33px 39px; }
+.poster.auto-doc .lead { margin-bottom: 33px; padding: 36px 51px; }
+.poster.auto-doc .red-list li { margin-bottom: 24px; }
+.poster.auto-doc .spec-text .red-list li { margin-bottom: 27px; }
+.poster.auto-doc .label-line { margin-bottom: 15px; }
+.poster.auto-doc .source-list li { margin-top: 18px; }
+/* Content split off after a label's colon: aligned under the title text, no red
+   square, no pink bar, regular weight. */
+.poster.auto-doc .label-rest {
+  margin: 4px 0 0 38px;
+  font-size: 28px;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #333;
+}
+/* A colon-less label keeps the red square but no pink highlight bar. */
+.poster.auto-doc .label-plain { font-weight: 600; }

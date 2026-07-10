@@ -5,11 +5,12 @@
 ## 仓库结构
 
 - `docx-spec-html/` —— skill 本体（`SKILL.md` 是权威说明，动手前必读）
-  - `SKILL.md` —— 完整工作流、交付前必检清单、不可协商的输出规则
-  - `references/design.md` —— 设计系统、CSS 模板、Word→HTML 映射、验收清单（体量大，100KB+）
-  - `references/high-quality-workflow.md` —— 高质量工作流与常见失败模式
+  - `SKILL.md` —— 核心工作流、固定八模块、交付必检与不可协商规则
+  - `references/structure.md` —— PDF/DOCX 层级重建与内容顺序
+  - `references/components.md` —— 复杂表格、图片布局、指标与视频组件
+  - `references/visual-qa.md` —— 浏览器、导出与交付验收
   - `scripts/` —— `extract_docx_manifest.py`（抽料）、`batch_generate.py`（草稿生成器）、`validate_output.py`（校验）
-  - `assets/` —— `styles.css`、hero 字体、golden 示例、`vendor/`（html-editor.html + html2canvas.min.js）
+  - `assets/` —— 唯一 CSS 源、WOFF2 hero 字体、轻量 golden 参考与 `vendor/` 运行时
   - `agents/openai.yaml` —— 外部工具集成的 agent 接口定义
 - `GeneratedProducts/` —— 生成产物；`*-rebuild/` 目录里的 `probe_*.py`/`patch_*.py`/`inspect_*.py` 是一次性调试脚本，不是可复用工具
 - `.joycode/memory/` —— 跨会话记忆（已记录「PDF 为主料」这条核心反馈）
@@ -24,7 +25,7 @@
 
 ## 运行脚本前的环境准备
 
-脚本依赖 **`python-docx`**，当前机器的 `python3`（`/usr/bin/python3`）**没有安装**它。运行前先装：
+脚本依赖 **`python-docx`**。环境缺少依赖时安装：
 
 ```bash
 python3 -m pip install --user python-docx
@@ -34,11 +35,11 @@ python3 -m pip install --user python-docx
 
 ```bash
 python3 scripts/extract_docx_manifest.py /path/to/source.docx --out /path/to/source-manifest.json
-python3 scripts/batch_generate.py /path/to/source.docx /path/to/output   # 可加 --updated 2026.06 / --editable / --strict
+python3 scripts/batch_generate.py /path/to/source.docx /path/to/output   # 可加 --style custom.css / --updated 2026.06 / --editable / --strict
 python3 scripts/validate_output.py /path/to/source.docx /path/to/final.html --strict
 ```
 
-`batch_generate.py` 顶部导入 `from validate_output import validate`，所以必须从 `scripts/` 目录运行（或让该目录在 `sys.path` 上）。
+`--design` 继续作为 `--style` 的兼容别名，并可读取旧版含 CSS 代码块的 Markdown 设计文件。
 
 ## 交付物形态
 
@@ -50,4 +51,4 @@ python3 scripts/validate_output.py /path/to/source.docx /path/to/final.html --st
 
 ## 更新 skill 的时机
 
-用户反馈揭示的是**通用规则**时，更新 `references/design.md`（必要时改脚本）；反馈是**单文档特例**时，只改那一份输出或项目专属生成器。校验脚本历史上有两类误报已收紧判定（见 `SKILL.md` §8 引用块），不要为迎合旧误报去改结构。
+用户反馈揭示的是**通用规则**时，按内容更新 `references/structure.md`、`references/components.md` 或 `references/visual-qa.md`（必要时改脚本/CSS）；反馈是**单文档特例**时，只改那一份输出或项目专属生成器。不要把 CSS 复制回 Markdown，`assets/styles.css` 是唯一样式源。
