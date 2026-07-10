@@ -23,6 +23,22 @@ html, body {
   overflow: hidden;
 }
 
+/* Canonical design tokens. Component CSS must consume these instead of
+   inventing local typography, spacing, or hierarchy values. */
+.poster.auto-doc {
+  --brand-red: #ff2b22;
+  --table-font-size: 24px;
+  --table-header-weight: 700;
+  --table-body-weight: 400;
+  --table-body-bg: #f7f7f7;
+  --table-cell-radius: 10px;
+  --table-cell-gap: 8px;
+  --table-media-padding: 12px;
+  --nested-group-indent: 42px;
+  --nested-text-offset: 25px;
+  --video-header-height: 72px;
+}
+
 .hero {
   position: relative;
   height: 520px;
@@ -184,6 +200,15 @@ html, body {
   height: 11px;
   border-radius: 3px;
   background: #ff2b22;
+}
+.red-list li.sublevel::before { background: #d8d8d8; }
+.red-list li.sublevel {
+  margin-left: 28px;
+  padding-left: 25px;
+}
+.red-list li.sublevel > b {
+  background: none;
+  padding: 0;
 }
 .red-list b {
   display: inline;
@@ -917,29 +942,47 @@ body { background: #737373; }
 .poster.auto-doc .doc-table {
   width: 100%;
   border-collapse: separate;
-  border-spacing: 8px;
+  border-spacing: var(--table-cell-gap);
   table-layout: fixed;
 }
 .poster.auto-doc .doc-table th,
 .poster.auto-doc .doc-table td {
   vertical-align: middle;
-  border-radius: 8px;
-  padding: 12px;
-  font-size: 16px;
+  border-radius: var(--table-cell-radius);
+  padding: 14px 12px;
+  font-size: var(--table-font-size);
   line-height: 1.45;
 }
 .poster.auto-doc .doc-table th {
-  background: #ff2b22;
+  background: var(--brand-red);
   color: #fff;
-  font-weight: 600;
+  font-weight: var(--table-header-weight);
   text-align: center;
+  text-align-last: center;
 }
-.poster.auto-doc .doc-table td { background: #f7f7f7; }
+.poster.auto-doc .doc-table td {
+  background: var(--table-body-bg);
+  text-align: justify;
+  text-align-last: left;
+}
+.poster.auto-doc .doc-table td.table-media-cell { padding: var(--table-media-padding); }
+.poster.auto-doc .row-head { font-weight: var(--table-header-weight); }
+.poster.auto-doc .doc-table td .image-holder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+}
 .poster.auto-doc .doc-table .doc-image {
-  width: auto;
-  max-width: 100%;
-  max-height: 300px;
-  object-fit: contain;
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  border-radius: 8px;
 }
 
 /* Grey-square caption for example images (no red square, no highlight) */
@@ -1065,15 +1108,22 @@ body { background: #737373; }
 .poster.auto-doc .video-case-media {
   display: flex;
   flex-direction: column;
-  border-radius: 12px;
-  overflow: hidden;
+  gap: 10px;
 }
 .poster.auto-doc .video-case-head {
-  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: var(--video-header-height);
+  min-height: var(--video-header-height);
+  padding: 10px 16px;
+  border-radius: var(--table-cell-radius);
   background: #f1f1f1;
   text-align: center;
-  font-size: 24px;
-  font-weight: 700;
+  font-size: var(--table-font-size);
+  font-weight: var(--table-header-weight);
+  box-sizing: border-box;
 }
 .poster.auto-doc .video-case-body {
   flex: 1;
@@ -1082,15 +1132,39 @@ body { background: #737373; }
   justify-content: center;
   gap: 14px;
   padding: 22px 24px;
-  background: #f7f7f7;
+  border-radius: 10px;
+  background: var(--table-body-bg);
 }
 .poster.auto-doc .video-case-media {
-  gap: 12px;
-  padding: 14px;
-  background: #fbe2ec;
+  padding: 0;
+  background: transparent;
 }
-.poster.auto-doc .video-case-media .video-demo { padding: 18px 12px; }
-.poster.auto-doc .video-case-media .image-holder { margin: 0; min-height: 0; }
+.poster.auto-doc .video-case-media .video-demo {
+  width: 100%;
+  height: var(--video-header-height);
+  min-height: var(--video-header-height);
+  margin: 0;
+  padding: 10px 16px;
+  border-radius: var(--table-cell-radius);
+  background: var(--brand-red);
+  box-sizing: border-box;
+}
+.poster.auto-doc .video-case-media .video-demo .vd-text { color: #fff; font-size: var(--table-font-size); font-weight: var(--table-header-weight); }
+.poster.auto-doc .video-case-media .video-demo .vd-icon { width: 34px; height: 34px; }
+.poster.auto-doc .video-case-media .video-demo .vd-icon path { fill: #fff; }
+.poster.auto-doc .video-case-media .image-holder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin: 0;
+  padding: var(--table-media-padding);
+  min-height: 0;
+  border-radius: 10px;
+  background: #fbe2ec;
+  box-sizing: border-box;
+}
 .poster.auto-doc .video-case-media .doc-image { width: 100%; height: auto; border-radius: 8px; }
 
 /* Conversion-metric emphasis bar: white fill, green outline, centred.
@@ -1127,61 +1201,99 @@ body { background: #737373; }
   width: auto;
   display: block;
 }
+.poster.auto-doc .metric-standalone { flex-wrap: wrap; column-gap: 14px; row-gap: 10px; }
+.poster.auto-doc .metric-source-label { color: #555; font-size: 24px; font-weight: 700; }
+.poster.auto-doc .metric-separator { color: #47b250; font-size: 30px; font-weight: 800; }
 /* Inside a white module, leave room between the bar and the table below it. */
 .poster.auto-doc .text-block .metric-emphasis { margin: 0 0 12px; }
 /* metric-emphasis multi-item: several indicators inline, separated by a left border */
 .poster.auto-doc .metric-item { display: inline-flex; align-items: center; gap: 8px; }
 .poster.auto-doc .metric-item + .metric-item { border-left: 1px solid #cfe8d4; padding-left: 12px; margin-left: 4px; }
 
+/* Every semantic table uses the same rounded-card language. PDF/Word provide
+   hierarchy and merged-cell geometry only; they do not override this styling. */
+.poster.auto-doc .compare-matrix,
+.poster.auto-doc .material-table,
+.poster.auto-doc .attr-table,
+.poster.auto-doc .word-table-spec {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: var(--table-cell-gap);
+  table-layout: fixed;
+  background: #fff;
+}
+.poster.auto-doc .compare-matrix th,
+.poster.auto-doc .compare-matrix td,
+.poster.auto-doc .material-table th,
+.poster.auto-doc .material-table td,
+.poster.auto-doc .attr-table th,
+.poster.auto-doc .attr-table td,
+.poster.auto-doc .word-table-spec th,
+.poster.auto-doc .word-table-spec td {
+  border: 0;
+  border-radius: var(--table-cell-radius);
+  padding: 14px 12px;
+  vertical-align: middle;
+  font-size: var(--table-font-size);
+  line-height: 1.45;
+  background: var(--table-body-bg);
+}
+.poster.auto-doc .compare-matrix th,
+.poster.auto-doc .material-table th,
+.poster.auto-doc .attr-table th,
+.poster.auto-doc .word-table-spec th {
+  background: var(--brand-red);
+  color: #fff;
+  font-weight: var(--table-header-weight);
+  text-align: center;
+  text-align-last: center;
+}
+.poster.auto-doc .compare-matrix td,
+.poster.auto-doc .material-table td,
+.poster.auto-doc .attr-table td,
+.poster.auto-doc .word-table-spec td {
+  text-align: justify;
+  text-align-last: left;
+}
+
 /* 4-column optimisation matrix (优化内容/案例/优化前/优化后), first column groups rows via rowspan */
-.poster.auto-doc .compare-matrix { width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff; }
-.poster.auto-doc .compare-matrix th, .poster.auto-doc .compare-matrix td { border: 1px solid #e5e5e5; padding: 12px; vertical-align: middle; text-align: center; }
-.poster.auto-doc .compare-matrix thead th { background: #ff2b22; color: #fff; font-weight: 700; }
-.poster.auto-doc .compare-matrix .cm-group { background: #f7f7f7; font-weight: 700; }
+.poster.auto-doc .compare-matrix .cm-group { background: var(--table-body-bg); font-weight: var(--table-body-weight); }
 .poster.auto-doc .compare-matrix col.cm-c1 { width: 22%; }
 .poster.auto-doc .compare-matrix col.cm-c2 { width: 12%; }
 .poster.auto-doc .compare-matrix col.cm-c3,
 .poster.auto-doc .compare-matrix col.cm-c4 { width: 33%; }
-.poster.auto-doc .compare-matrix .cm-case { background: #f7f7f7; font-weight: 600; white-space: nowrap; }
-.poster.auto-doc .compare-matrix .cm-text { background: #f7f7f7; text-align: left; }
+.poster.auto-doc .compare-matrix .cm-case { background: var(--table-body-bg); font-weight: var(--table-body-weight); white-space: nowrap; }
+.poster.auto-doc .compare-matrix .cm-text { background: var(--table-body-bg); }
 .poster.auto-doc .compare-matrix .cm-text p { margin: 0; }
 .poster.auto-doc .compare-matrix .cm-text p + p { margin-top: 8px; }
-/* 图片单元格铺满：图片 td 去内边距，holder/图片撑满，与表格上下左右对齐。
-   不用 object-fit/max-height——那会让图小一圈，且 html2canvas 不渲染 object-fit。 */
-.poster.auto-doc .compare-matrix td.cm-img { padding: 0; }
+/* Table media keeps one equal inset on all four sides. Images remain proportional;
+   do not use object-fit/max-height because html2canvas does not preserve it. */
+.poster.auto-doc .compare-matrix td.cm-img { padding: var(--table-media-padding); }
 .poster.auto-doc .compare-matrix td.cm-img .image-holder { margin: 0; width: 100%; min-height: 0; }
-.poster.auto-doc .compare-matrix td.cm-img .doc-image { width: 100%; height: auto; display: block; border-radius: 10px; }
+.poster.auto-doc .compare-matrix td.cm-img .doc-image { width: 100%; height: auto; display: block; border-radius: 8px; }
 .poster.auto-doc .compare-matrix .doc-image { width: 100%; height: auto; display: block; }
 
 /* material-type table (素材图类型/内容要求/示例), 「示例」header spans two image columns */
-.poster.auto-doc .material-table { width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff; }
-.poster.auto-doc .material-table th, .poster.auto-doc .material-table td { border: 1px solid #e5e5e5;padding: 12px; vertical-align: middle; }
-.poster.auto-doc .material-table thead th { background: #ff2b22; color: #fff; font-weight: 700; text-align: center; }
-.poster.auto-doc .material-table .mt-type { text-align: center; font-weight: 700; }
-.poster.auto-doc .material-table .mt-req { text-align: left; }
-.poster.auto-doc .material-table .mt-eg { text-align: center; }
-/* 示例图单元格铺满：图片 td 去内边距，holder/图片撑满，与表格上下左右对齐。
-   不用 object-fit/max-height——那会让图小一圈，且 html2canvas 不渲染 object-fit。 */
-.poster.auto-doc .material-table td.mt-eg { padding: 0; }
+.poster.auto-doc .material-table .mt-type { font-weight: var(--table-header-weight); }
+/* Material examples use the same equal media inset as every other table card. */
+.poster.auto-doc .material-table td.mt-eg { padding: var(--table-media-padding); }
 .poster.auto-doc .material-table td.mt-eg .image-holder { margin: 0; width: 100%; min-height: 0; }
-.poster.auto-doc .material-table .mt-eg .doc-image { width: 100%; height: auto; display: block; border-radius: 10px; }
+.poster.auto-doc .material-table .mt-eg .doc-image { width: 100%; height: auto; display: block; border-radius: 8px; }
 .poster.auto-doc .material-table col.mt-c1 { width: 16%; } .poster.auto-doc .material-table col.mt-c2 { width: 34%; }
 .poster.auto-doc .material-table col.mt-c3 { width: 25%; } .poster.auto-doc .material-table col.mt-c4 { width: 25%; }
 
-/* attribute / keyword-priority table: 2-col grey-red-grey text-only grid */
-.poster.auto-doc .attr-table { width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff; }
+/* Attribute/keyword tables default to one red header system. Alternate colours
+   are allowed only with an explicit semantic distinction on .is-semantic-alt. */
 .poster.auto-doc .attr-table th,
-.poster.auto-doc .attr-table td { border: 1px solid #e5e5e5; padding: 14px; text-align: center; font-weight: 700; }
-.poster.auto-doc .attr-table .at-grey { background: #f2f2f2; color: #333; }
-.poster.auto-doc .attr-table .at-red { background: #ff2b22; color: #fff; }
-.poster.auto-doc .attr-table .attr-head-gray { background: #f2f2f2; color: #333; }
-.poster.auto-doc .attr-table .attr-head-red { background: #ff2b22; color: #fff; }
-.poster.auto-doc .attr-table .attr-img { padding: 8px; background: #f7f7f7; }
+.poster.auto-doc .attr-table .attr-head-gray,
+.poster.auto-doc .attr-table .attr-head-red { background: var(--brand-red); color: #fff; }
+.poster.auto-doc .attr-table.is-semantic-alt .attr-head-gray { background: #f2f2f2; color: #333; }
+.poster.auto-doc .attr-table .attr-img { padding: var(--table-media-padding); background: var(--table-body-bg); }
 .poster.auto-doc .attr-table .attr-img .image-holder { margin: 0; min-height: 0; }
-.poster.auto-doc .attr-table .attr-img .doc-image { width: 100%; height: auto; border-radius: 8px; }
+.poster.auto-doc .attr-table .attr-img .doc-image { display: block; width: 100%; height: auto; border-radius: 8px; }
 
-/* tag-example image: doubled width (品质标签示例) */
-.poster.auto-doc .tag-example-table .doc-image { width: 100%; max-height: 600px; object-fit: contain; }
+/* Tag examples fill their equal-padding cell while keeping source proportion. */
+.poster.auto-doc .tag-example-table .doc-image { width: 100%; height: auto; max-height: none; }
 
 /* layout placeholder for 首图模块化 schematic */
 .poster.auto-doc .layout-holder { display: flex; align-items: center; justify-content: center; min-height: 200px; border: 2px dashed #d9d9d9; border-radius: 10px; background: #fafafa; overflow: hidden; }
@@ -1198,52 +1310,82 @@ body { background: #737373; }
   display: flex;
   flex-direction: column;
   gap: 10px;
+  width: 100%;
+  min-width: 0;
 }
 .poster.auto-doc .ba-head {
-  border-radius: 8px;
-  padding: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: var(--table-cell-radius);
+  padding: 14px 12px;
   text-align: center;
-  font-size: 18px;
-  font-weight: 600;
+  font-size: var(--table-font-size);
+  font-weight: var(--table-header-weight);
 }
 .poster.auto-doc .ba-before { background: #f1f1f1; color: #555; }
-.poster.auto-doc .ba-after { background: #ff2b22; color: #fff; }
-.poster.auto-doc .ba-col .image-holder { min-height: 0; }
-.poster.auto-doc .ba-text { margin: 0; font-size: 15px; line-height: 1.45; color: #333; }
+.poster.auto-doc .ba-after { background: var(--brand-red); color: #fff; }
+.poster.auto-doc .ba-col .image-holder {
+  width: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: var(--table-media-padding);
+  border-radius: var(--table-cell-radius);
+  background: var(--table-body-bg);
+}
+.poster.auto-doc .ba-col .doc-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  border-radius: 8px;
+}
+.poster.auto-doc .ba-text {
+  margin: 0;
+  font-size: var(--table-font-size);
+  line-height: 1.45;
+  color: #333;
+  text-align: justify;
+  text-align-last: left;
+}
 
 /* Three-column spec table: 主图 narrowest, 内容要求 ~2x, 示例 half width */
 .poster.auto-doc .spec-table {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--table-cell-gap);
 }
 .poster.auto-doc .spec-row {
   display: grid;
   grid-template-columns: 1fr 2fr 3fr;
-  gap: 8px;
+  gap: var(--table-cell-gap);
   align-items: stretch;
 }
 .poster.auto-doc .spec-cell {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  align-items: center;
-  text-align: center;
+  align-items: stretch;
+  text-align: justify;
+  text-align-last: left;
   gap: 6px;
-  background: #f7f7f7;
-  border-radius: 8px;
-  padding: 12px;
-  font-size: 16px;
+  background: var(--table-body-bg);
+  border-radius: var(--table-cell-radius);
+  padding: 14px 12px;
+  font-size: var(--table-font-size);
   line-height: 1.45;
   color: #333;
 }
 .poster.auto-doc .spec-head .spec-cell {
-  background: #ff2b22;
+  background: var(--brand-red);
   color: #fff;
-  font-weight: 600;
+  font-weight: var(--table-header-weight);
   text-align: center;
+  text-align-last: center;
   align-items: center;
 }
+.poster.auto-doc .spec-row:not(.spec-head) .spec-cell.row-head { font-weight: var(--table-header-weight); }
+.poster.auto-doc .spec-cell.spec-media-cell { padding: var(--table-media-padding); }
 .poster.auto-doc .spec-cell .image-holder {
   min-height: 0;
   width: 100%;
@@ -1345,8 +1487,8 @@ body.editing [contenteditable="true"] {
 .poster.auto-doc .doc-table th,
 .poster.auto-doc .doc-table td { font-size: 24px; }
 .poster.auto-doc .spec-cell { font-size: 24px; }
-.poster.auto-doc .ba-head { font-size: 27px; }
-.poster.auto-doc .ba-text { font-size: 23px; }
+.poster.auto-doc .ba-head { font-size: 24px; }
+.poster.auto-doc .ba-text { font-size: 24px; }
 /* Metric bar is NOT scaled with the body copy — it keeps the original
    24/40px text and 34px arrow defined above. */
 
@@ -1412,6 +1554,15 @@ body.editing [contenteditable="true"] {
   height: 16px;
   top: 13px;
   border-radius: 4px;
+}
+.poster.auto-doc .red-list li.sublevel::before { background: #d8d8d8; }
+.poster.auto-doc .red-list li.sublevel {
+  margin-left: var(--nested-group-indent);
+  padding-left: var(--nested-text-offset);
+}
+.poster.auto-doc .red-list li.sublevel > b {
+  background: none;
+  padding: 0;
 }
 .poster.auto-doc .caption-line::before {
   width: 16px;

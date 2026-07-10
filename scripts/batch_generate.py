@@ -29,6 +29,7 @@ DEFAULT_FONT = SKILL_ROOT / "assets" / "fonts" / "JINGDONGLangZhengTi1-Bold.woff
 DEFAULT_H2C = SKILL_ROOT / "assets" / "vendor" / "html2canvas.min.js"
 DEFAULT_EDITOR = SKILL_ROOT / "assets" / "vendor" / "html-editor.html"
 GENERATOR_CSS_MARKER = "/* ===== Generic DOCX generator additions ===== */"
+SKILL_RELEASE = "2026.07.10-r3"
 
 
 @dataclass
@@ -205,12 +206,33 @@ EDITABLE_RUNTIME = """
 
 
 def label_line(text: str) -> str:
-    """A red-square label. A colon means the run up to (and incl.) the first colon
-    is the TITLE — red square + pink highlight bar — and whatever follows the colon
-    is split off below it with no highlight. With no colon anywhere, it is just a
-    red square + plain text, no pink bar."""
+    """Render one red-square label without splitting punctuation inside brackets.
+
+    Module-local numbered subtitles always receive the pink marker.  A trailing
+    parenthetical note that itself contains a colon (for example an upload path)
+    moves intact to the next line instead of being cut at that inner colon.
+    """
     t = clean_text(text)
-    cut = next((i + 1 for i, ch in enumerate(t) if ch in "：:"), -1)
+    if LOCAL_SUBHEAD_RE.match(t):
+        aside = re.match(r"^(.*?)([（(][^（）()]*[：:][^（）()]*[）)])\s*$", t)
+        if aside:
+            title, rest = aside.group(1).rstrip(), aside.group(2)
+            return (
+                f'<div class="label-line"><span class="label-text">{esc(title)}</span></div>'
+                f'<div class="label-rest">{esc(rest)}</div>'
+            )
+        return f'<div class="label-line"><span class="label-text">{esc(t)}</span></div>'
+
+    depth = 0
+    cut = -1
+    for index, char in enumerate(t):
+        if char in "（(":
+            depth += 1
+        elif char in "）)":
+            depth = max(0, depth - 1)
+        elif char in "：:" and depth == 0:
+            cut = index + 1
+            break
     if cut != -1:
         prefix, rest = t[:cut], t[cut:].strip()
         html = f'<div class="label-line"><span class="label-text">{esc(prefix)}</span></div>'
@@ -234,6 +256,10 @@ def source_list(items: list) -> str:
 
 
 def emphasize_prefix(text: str) -> str:
+    # Numbered siblings such as 1、/2、/3、must keep one typographic weight.
+    # A colon inside only one sibling (e.g. 3、时长：) is not a reason to bold it.
+    if NUMBERED_ITEM_RE.match(text):
+        return text
     for mark in ("：", ":"):
         if mark in text and text.index(mark) <= 18:
             idx = text.index(mark) + 1
@@ -280,7 +306,7 @@ def render_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes], ext
             and len(set(header_texts)) == 1
         )
         cells = row.cells[:1] if repeated_header else row.cells
-        for cell in cells:
+        for cell_index, cell in enumerate(cells):
             texts = [clean_text(p.text) for p in cell.paragraphs if clean_text(p.text)]
             image_html = []
             for paragraph in cell.paragraphs:
@@ -289,7 +315,19 @@ def render_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes], ext
                         image_html.append(f'<div class="image-holder">{image_tag(target, blobs, texts[0] if texts else "表格图片")}</div>')
             text_html = "<br>".join(esc(text) for text in texts)
             colspan = f' colspan="{len(row.cells)}"' if repeated_header else ""
-            cells_html.append(f"<{tag}{colspan}>{text_html}{''.join(image_html)}</{tag}>")
+            row_head = (
+                row_idx > 0
+                and cell_index == 0
+                and not image_html
+                and is_short_row_header(" ".join(texts))
+            )
+            cell_classes: list[str] = []
+            if row_head:
+                cell_classes.append("row-head")
+            if image_html:
+                cell_classes.append("table-media-cell")
+            class_attr = f' class="{" ".join(cell_classes)}"' if cell_classes else ""
+            cells_html.append(f"<{tag}{class_attr}{colspan}>{text_html}{''.join(image_html)}</{tag}>")
         rows_html.append("<tr>" + "".join(cells_html) + "</tr>")
     classes = "doc-table" + (f" {extra_class}" if extra_class else "")
     return f'<div class="doc-table-wrap"><table class="{classes}">' + "".join(rows_html) + "</table></div>"
@@ -471,7 +509,8 @@ def split_sections(blocks: list[ParagraphBlock | TableBlock]) -> tuple[str, list
 BRACKET_RE = re.compile(r"^\s*(【[^】]+】)\s*(.*)$")
 CIRCLED_RE = re.compile(r"^\s*[①②③④⑤⑥⑦⑧⑨⑩⑪⑫]")
 LOCAL_SUBHEAD_RE = re.compile(r"^\s*[（(][0-9一二三四五六七八九十]+[）)]")
-CONVERSION_RE = re.compile(r"^[一-龥A-Za-z·]{2,12}\s*[+＋]\s*\d+(?:\.\d+)?\s*%$")
+NUMBERED_ITEM_RE = re.compile(r"^\s*(?:\d+|[一二三四五六七八九十]+)[、.．]")
+METRIC_PAIR_RE = re.compile(r"([一-龥A-Za-z·]{2,12})\s*([+＋]\s*\d+(?:\.\d+)?\s*%)")
 # "前缀：内容" lead-in, e.g. 总结：…/字数范围：…/卖点建议顺序：… — gets a red square + pink highlight.
 COLON_PREFIX_RE = re.compile(r"^([^：:\n]{1,18}[：:])(.+)$")
 # A conversion metric embedded inside a longer label, e.g. "2.优化前后图 商详转化率+2%".
@@ -490,8 +529,14 @@ def split_label_metric(label: str) -> tuple[str | None, str | None]:
 
 
 def is_conversion_metric(text: str) -> bool:
-    """A standalone "XX率+X%" style metric line that deserves green emphasis."""
-    return bool(CONVERSION_RE.fullmatch(clean_text(text)))
+    """A standalone one-or-many metric line that deserves green emphasis."""
+    cleaned = clean_text(text)
+    if not METRIC_PAIR_RE.search(cleaned):
+        return False
+    remainder = METRIC_PAIR_RE.sub("", cleaned)
+    remainder = re.sub(r"^效果数据\s*[：:]?", "", remainder)
+    remainder = re.sub(r"[；;、，,\s]", "", remainder)
+    return not remainder
 
 
 METRIC_ARROW_SVG = (
@@ -530,17 +575,31 @@ HERO_OVERLAY_SRC = (
 
 def metric_emphasis(text: str) -> str:
     cleaned = clean_text(text)
-    # Label stays black; the "+X%" (sign included) goes green with an up-arrow.
-    match = re.match(r"^(.*?)([+＋]?\s*\d+(?:\.\d+)?\s*%)$", cleaned)
-    if match and match.group(1).strip():
-        head, value = match.group(1).strip(), match.group(2)
-        inner = (
-            f'<span class="metric-text">{esc(head)}</span>'
-            f'<span class="metric-value">{esc(value)}{METRIC_ARROW_SVG}</span>'
+    matches = list(METRIC_PAIR_RE.finditer(cleaned))
+    if not matches:
+        return f'<div class="metric-emphasis metric-standalone"><span class="metric-text">{esc(cleaned)}</span></div>'
+
+    parts: list[str] = []
+    prefix = cleaned[: matches[0].start()]
+    if prefix:
+        parts.append(f'<span class="metric-source-label">{esc(prefix)}</span>')
+    previous_end = matches[0].start()
+    for index, match in enumerate(matches):
+        if index:
+            separator = cleaned[previous_end : match.start()]
+            if separator:
+                parts.append(f'<span class="metric-separator">{esc(separator)}</span>')
+        parts.append(
+            '<span class="metric-item">'
+            f'<span class="metric-text">{esc(match.group(1))}</span>'
+            f'<span class="metric-value">{esc(match.group(2))}{METRIC_ARROW_SVG}</span>'
+            '</span>'
         )
-    else:
-        inner = f'<span class="metric-text">{esc(cleaned)}</span>'
-    return f'<div class="metric-emphasis">{inner}</div>'
+        previous_end = match.end()
+    suffix = cleaned[previous_end:]
+    if suffix:
+        parts.append(f'<span class="metric-separator">{esc(suffix)}</span>')
+    return f'<div class="metric-emphasis metric-standalone">{"".join(parts)}</div>'
 
 
 # Strong "this is a clickable video" signals — trigger the 点击播放 card anywhere.
@@ -578,6 +637,7 @@ def caption_line(text: str) -> str:
 
 def red_list_block(items: list[str]) -> str:
     rows = []
+    bracket_parent_open = False
     for item in items:
         item = clean_text(item)
         if not item:
@@ -585,15 +645,23 @@ def red_list_block(items: list[str]) -> str:
         bracket = BRACKET_RE.match(item)
         if bracket:
             rows.append(f"<li><b>{esc(bracket.group(1))}</b>{esc(bracket.group(2))}</li>")
+            bracket_parent_open = True
             continue
+        class_attr = ' class="sublevel"' if bracket_parent_open else ""
         colon = COLON_PREFIX_RE.match(item)
         if colon:
-            rows.append(f"<li><b>{esc(colon.group(1))}</b>{esc(colon.group(2).strip())}</li>")
+            rows.append(f"<li{class_attr}><b>{esc(colon.group(1))}</b>{esc(colon.group(2).strip())}</li>")
             continue
-        rows.append(f"<li>{esc(item)}</li>")
+        rows.append(f"<li{class_attr}>{esc(item)}</li>")
     if not rows:
         return ""
     return f'<div class="text-block"><ul class="red-list">{"".join(rows)}</ul></div>'
+
+
+def is_short_row_header(text: str) -> bool:
+    """Short first-column body labels act as vertical row headers by default."""
+    compact = re.sub(r"\s+", "", clean_text(text))
+    return bool(compact) and len(compact) < 10
 
 
 def module_layout(items: list[str], fallback: str) -> str:
@@ -731,16 +799,24 @@ def spec_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes]) -> st
     rows_html: list[str] = []
     for row_idx, row in enumerate(table.rows):
         cells_html: list[str] = []
-        for cell in row.cells:
+        for cell_index, cell in enumerate(row.cells):
             content = ""
+            has_media = False
             for paragraph in cell.paragraphs:
                 txt = clean_text(paragraph.text)
                 if txt:
                     content += f"<span>{esc(txt)}</span>"
                 for target in paragraph_images(doc, paragraph):
                     if target in blobs:
+                        has_media = True
                         content += f'<div class="image-holder">{image_tag(target, blobs, "示例")}</div>'
-            cells_html.append(f'<div class="spec-cell">{content}</div>')
+            row_head = row_idx > 0 and cell_index == 0 and is_short_row_header(clean_text(cell.text))
+            classes = ["spec-cell"]
+            if row_head:
+                classes.append("row-head")
+            if has_media:
+                classes.append("spec-media-cell")
+            cells_html.append(f'<div class="{" ".join(classes)}">{content}</div>')
         row_class = "spec-row spec-head" if row_idx == 0 else "spec-row"
         rows_html.append(f'<div class="{row_class}">{"".join(cells_html)}</div>')
     return f'<div class="spec-table">{"".join(rows_html)}</div>'
@@ -808,7 +884,7 @@ def material_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes]) -
     for row in rows[1:]:
         kind = clean_text(row.cells[0].text)
         requirements = [clean_text(p.text) for p in row.cells[1].paragraphs if clean_text(p.text)]
-        cells = [f'<td class="mt-type">{esc(kind)}</td>', f'<td class="mt-req">{"<br>".join(esc(x) for x in requirements)}</td>']
+        cells = [f'<td class="mt-type row-head">{esc(kind)}</td>', f'<td class="mt-req">{"<br>".join(esc(x) for x in requirements)}</td>']
         for column in (2, 3):
             targets = cell_image_targets(row.cells[column], doc, blobs)
             content = "".join(
@@ -830,12 +906,11 @@ def attribute_direction_table(table: Table, doc: DocumentObject, blobs: dict[str
     if len(rows) < 6:
         return render_table(table, doc, blobs)
     body: list[str] = []
-    for pair_index, row_index in enumerate(range(0, len(rows), 2)):
+    for row_index in range(0, len(rows), 2):
         if row_index + 1 >= len(rows):
             break
-        head_class = "attr-head-red" if pair_index % 2 else "attr-head-gray"
         labels = [clean_text(cell.text) for cell in rows[row_index].cells[:2]]
-        body.append("<tr>" + "".join(f'<th class="{head_class}">{esc(label)}</th>' for label in labels) + "</tr>")
+        body.append("<tr>" + "".join(f'<th class="attr-head-red">{esc(label)}</th>' for label in labels) + "</tr>")
         image_cells: list[str] = []
         for column in (0, 1):
             targets = cell_image_targets(rows[row_index + 1].cells[column], doc, blobs)
@@ -860,7 +935,7 @@ def video_case_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes])
         f'<div class="image-holder">{image_tag(target, blobs, "视频案例")}</div>' for target in targets
     )
     return (
-        '<div class="video-case-grid">'
+        '<div class="video-case-grid video-case-card">'
         f'<div class="video-case-copy"><div class="video-case-head">视频案例</div><div class="video-case-body">{copy_html}</div></div>'
         f'<div class="video-case-media">{media_html}</div>'
         '</div>'
@@ -897,6 +972,8 @@ def table_group(
     # Embedded metric (e.g. 商详转化率+2%) sits under the title, spanning the same
     # width as the before/after (优化前+优化后) columns below it.
     metric_html = metric_emphasis(metric) if metric else ""
+    if kind == "tag_example" and not label_html and not metric_html:
+        return inner
     return f'<div class="text-block">{label_html}{metric_html}{inner}</div>'
 
 
@@ -964,6 +1041,8 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
                     return True
                 continue
             if CIRCLED_RE.match(nb.text):
+                return True
+            if NUMBERED_ITEM_RE.match(nb.text):
                 return True
             return nb.list_level is not None and nb.list_level > base
         return False
@@ -1076,7 +1155,10 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
         # A colon label opens a new red container — UNLESS it is itself a Word list
         # item nested inside an already-open container (e.g. 性能及其他利益点： at
         # ilvl=0 under 2.详细规范：), in which case it stays a grey sub-item below.
-        if is_label(text) and not (pending_label is not None and block.list_level is not None):
+        if is_label(text) and not (
+            pending_label is not None
+            and (block.list_level is not None or NUMBERED_ITEM_RE.match(text))
+        ):
             flush_plain()
             flush_bracket()
             flush_label()
@@ -1315,6 +1397,7 @@ def render_html(docx_path: Path, style_path: Path, font_path: Path | None, updat
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="generator" content="docx-spec-html/{SKILL_RELEASE}">
   <title>{esc(title)}</title>
   <style>{css}</style>
 </head>

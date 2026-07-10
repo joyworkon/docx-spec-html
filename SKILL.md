@@ -9,7 +9,7 @@ Convert Word specification documents into polished 1280px single-file HTML pages
 
 ## Core contract
 
-- Treat the companion PDF as the structural source of truth. DOCX exports flatten headings and merged cells. Ask for the matching PDF; if unavailable, warn that hierarchy confidence is lower.
+- Treat the companion PDF as the structural source of truth for content hierarchy, module boundaries, merged cells, and row/column relationships only. Never copy the PDF's colours, borders, corner treatment, spacing, or image-card styling; those always come from this Skill's HTML design system and golden reference.
 - Never deliver raw `batch_generate.py` output as production work. It is extraction scaffolding only.
 - Use exactly these eight first-level modules in order: `主图规范` / `主图视频` / `长标题` / `短标题` / `通用卖点` / `主推标签` / `品质标签` / `属性`.
 - Strip the source `N、` prefix from module titles because the card already carries `01`–`08`. Never promote numbered body items or unnumbered phrases into extra chapters.
@@ -22,7 +22,7 @@ Convert Word specification documents into polished 1280px single-file HTML pages
 - Read `references/visual-qa.md` before final delivery and whenever browser/export rendering differs.
 - Use `assets/styles.css` as the single canonical stylesheet. Do not copy CSS into Markdown references.
 - Compare visual treatment with `assets/examples/auto-oil-golden-reference.html` and its three compressed WebP snapshots.
-- Use `scripts/extract_docx_manifest.py`, `scripts/batch_generate.py`, and `scripts/validate_output.py` for deterministic extraction, draft generation, and validation.
+- Use `scripts/extract_docx_manifest.py`, `scripts/batch_generate.py`, `scripts/validate_output.py`, and `scripts/review_gate.py` for deterministic extraction, draft generation, source validation, and post-generation rule gates.
 
 ## Required workflow
 
@@ -49,6 +49,14 @@ Convert Word specification documents into polished 1280px single-file HTML pages
    python3 scripts/validate_output.py source.docx final-output.html --strict
    ```
 
+7. Run the deterministic review gate. Use the body-care profile for this regression document:
+
+   ```bash
+   python3 scripts/review_gate.py source.docx final-output.html --profile body-care --out review-report.json
+   ```
+
+8. Complete the manual visual/runtime checks listed by the gate. Do not deliver on a failed gate.
+
 ## Non-negotiable output rules
 
 - Deliver one self-contained `.html` by default. Embed CSS, images, WOFF2 title font, editor, and html2canvas; use no CDN.
@@ -63,6 +71,10 @@ Convert Word specification documents into polished 1280px single-file HTML pages
 - Keep card body text near 28px and the enlarged 600px Hero proportions defined by the canonical stylesheet. Do not override Hero child positioning.
 - Use `.detail-screen-grid` for five or more consecutive screen examples. Use `.sample-image` only for two or more same-label examples; use `.half-image` for 图文详情 examples.
 - Use `.metric-emphasis` for conversion-rate metrics, `.ba-compare` for before/after comparisons, and `.spec-table` for three-column specifications.
+- Render every semantic table with the one rounded-card system: 24px justified body text with the final line aligned left, 24px/700 centred red top headers, uniform light-grey `#f7f7f7` body cells, 10px cell corners, 8px gaps, and 12px equal inset around every table image. Use a non-red header only when the source explicitly gives it a distinct semantic role—not merely because the PDF uses another colour.
+- In a table body, a non-empty first-column text cell shorter than 10 characters is a vertical row header by default and must be bold. Keep longer first-column prose at body weight unless its semantics explicitly require emphasis.
+- Keep numbered siblings such as `1、` / `2、` / `3、` at identical weight and hierarchy. A colon inside one sibling, such as `3、时长：`, must not make only that sibling bold.
+- Embed exactly one canonical `<style>` block and the `docx-spec-html/<release>` generator meta tag. Reject final HTML containing `body-care-review-fixes` or any other stacked review stylesheet; consolidate accepted changes into `assets/styles.css` and regenerate cleanly.
 
 ## Mandatory delivery checks
 
@@ -74,6 +86,10 @@ Convert Word specification documents into polished 1280px single-file HTML pages
 6. Avoid `object-fit` for export-critical content images. Before html2canvas capture, flatten Hero blending and replace videos with poster images.
 7. In the 主图视频 module, replace click-to-watch signals with one pink `点击播放` card; do not retain raw links.
 8. Confirm no missing/underrepresented text, image-count mismatch, table loss, clipping, overlap, or white-card collision.
+9. Under a bracket parent such as `【主图】`, render its explanatory children with grey squares, no pink highlight, and exactly the same nested indentation geometry as `.source-list` (`42px` group indent plus `25px` text offset at production scale); do not let the generic red-list rule override `.sublevel`.
+10. Give every module-local `（1）`–`（4）` subtitle a pink marker. If a trailing parenthetical note contains a colon, keep that whole parenthesis together on the next line.
+11. Align `视频案例` and `点击播放` as equal-height table-style headers; retain the inline play icon. Keep all table/card media proportional and use the canonical 12px equal padding on every side; never make an image flush with its card edge.
+12. Run `review_gate.py`; then inspect screenshots and smoke-test both floating controls. The deterministic gate catches known structural/style regressions, while visual review remains responsible for overlap, clipping, density, and aesthetic balance.
 
 ## Editable review mode
 
