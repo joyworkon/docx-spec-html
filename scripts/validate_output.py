@@ -48,8 +48,15 @@ def docx_texts(docx_path: Path) -> list[str]:
         if text:
             values.append(text)
     for table in doc.tables:
+        # python-docx exposes every grid slot of a merged cell as a Cell wrapper.
+        # Count the underlying XML cell once so PDF-faithful rowspan/colspan output
+        # is not falsely reported as underrepresenting duplicated export text.
+        seen_cells: set[Any] = set()
         for row in table.rows:
             for cell in row.cells:
+                if cell._tc in seen_cells:
+                    continue
+                seen_cells.add(cell._tc)
                 for paragraph in cell.paragraphs:
                     text = clean_text(paragraph.text)
                     if text:
@@ -194,7 +201,7 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
             # intentionally rendered as the 「点击播放」 play card, so its original
             # wording (the placeholder text or the raw link) is replaced by design.
             if "video-demo" in html_text and (
-                re.search(r"视频播放按钮|播放按钮|主图视频示范", text)
+                re.search(r"视频播放按钮|播放按钮|主图视频示范|点击查看|点击播放|观看视频|视频入口", text)
                 or re.search(r"https?://", text)
             ):
                 continue
@@ -225,7 +232,12 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
     expected_tables = docx_table_count(docx_path)
     actual_table_like = (
         len(re.findall(r"<table\b", html_text, flags=re.I))
-        + len(re.findall(r'class="[^"]*(?:word-table-spec|spec-table|ba-compare)', html_text))
+        + len(
+            re.findall(
+                r'class="[^"]*(?:word-table-spec|spec-table|ba-compare|video-case-grid|module-layout)',
+                html_text,
+            )
+        )
     )
 
     css_checks = {

@@ -1,4 +1,4 @@
 interface:
   display_name: "DOCX Spec HTML"
-  short_description: "Create production-quality spec HTML from DOCX specs."
-  default_prompt: "Use the docx-spec-html high-quality workflow: extract the DOCX manifest, generate a baseline draft, then use model-led hierarchy reconstruction and the bundled golden example to produce final single-file HTML. Validate text, images, tables, CSS invariants, and visual hierarchy before delivering."
+  short_description: "Build production spec HTML from DOCX/PDF"
+  default_prompt: "Use $docx-spec-html to reconstruct this DOCX/PDF specification into a validated, production-quality single-file HTML page."

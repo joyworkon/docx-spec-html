@@ -24,10 +24,11 @@ from validate_output import validate
 
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DESIGN = SKILL_ROOT / "references" / "design.md"
-DEFAULT_FONT = SKILL_ROOT / "assets" / "fonts" / "JINGDONGLangZhengTi1-Bold.ttf"
+DEFAULT_STYLE = SKILL_ROOT / "assets" / "styles.css"
+DEFAULT_FONT = SKILL_ROOT / "assets" / "fonts" / "JINGDONGLangZhengTi1-Bold.woff2"
 DEFAULT_H2C = SKILL_ROOT / "assets" / "vendor" / "html2canvas.min.js"
 DEFAULT_EDITOR = SKILL_ROOT / "assets" / "vendor" / "html-editor.html"
+GENERATOR_CSS_MARKER = "/* ===== Generic DOCX generator additions ===== */"
 
 
 @dataclass
@@ -113,543 +114,43 @@ def image_target_to_blob(doc: DocumentObject) -> dict[str, bytes]:
     return blobs
 
 
-def extract_css(design_path: Path, font_path: Path | None) -> str:
-    design = design_path.read_text(encoding="utf-8")
-    if "## 十七、完整 CSS 模板" in design and "## 十八、验收与交付协议" in design:
-        section = design.split("## 十七、完整 CSS 模板", 1)[1].split("## 十八、验收与交付协议", 1)[0]
+def load_css(style_path: Path, font_path: Path | None) -> str:
+    """Load canonical CSS, while accepting legacy Markdown design files."""
+    source = style_path.read_text(encoding="utf-8")
+    if style_path.suffix.lower() == ".md":
+        if "## 十七、完整 CSS 模板" in source and "## 十八、验收与交付协议" in source:
+            section = source.split("## 十七、完整 CSS 模板", 1)[1].split("## 十八、验收与交付协议", 1)[0]
+        else:
+            section = source
+        blocks = re.findall(r"```css\n(.*?)```", section, flags=re.S)
+        css = "\n\n".join(blocks)
+        if not css.strip():
+            raise ValueError(f"No CSS code block found in {style_path}")
+
+        # Legacy --design files contained only the base template. Preserve the
+        # old behavior by appending the generator-specific component rules from
+        # the canonical stylesheet.
+        canonical = DEFAULT_STYLE.read_text(encoding="utf-8")
+        if GENERATOR_CSS_MARKER in canonical and GENERATOR_CSS_MARKER not in css:
+            css += "\n\n" + GENERATOR_CSS_MARKER + canonical.split(GENERATOR_CSS_MARKER, 1)[1]
     else:
-        section = design
-    blocks = re.findall(r"```css\n(.*?)```", section, flags=re.S)
-    css = "\n\n".join(blocks)
-    if not css.strip():
-        raise ValueError(f"No CSS code block found in {design_path}")
+        css = source
+
     if font_path and font_path.exists():
         font_data = base64.b64encode(font_path.read_bytes()).decode("ascii")
+        suffix = font_path.suffix.lower()
+        mime, font_format = {
+            ".woff2": ("font/woff2", "woff2"),
+            ".woff": ("font/woff", "woff"),
+            ".otf": ("font/otf", "opentype"),
+        }.get(suffix, ("font/ttf", "truetype"))
         css = re.sub(
-            r'src:\s*url\("JINGDONGLangZhengTi1-Bold\.ttf"\)\s*format\("truetype"\);',
-            f'src: url("data:font/ttf;base64,{font_data}") format("truetype");',
+            r'src:\s*url\("[^"]*JINGDONGLangZhengTi1-Bold\.(?:ttf|otf|woff2?|TTF|OTF|WOFF2?)"\)\s*format\("[^"]+"\);',
+            f'src: url("data:{mime};base64,{font_data}") format("{font_format}");',
             css,
+            count=1,
         )
-    return css + GENERIC_CSS
-
-
-GENERIC_CSS = """
-
-/* ===== Generic DOCX generator additions ===== */
-body { background: #737373; }
-.poster.auto-doc .hero { height: 500px; }
-.poster.auto-doc .hero h1 { max-width: 760px; }
-.poster.auto-doc .hero + .card { margin-top: -75px; }
-.poster.auto-doc .gray-panel > * + * { margin-top: 18px; }
-.poster.auto-doc .plain-block p {
-  margin: 0;
-  font-size: 19px;
-  line-height: 1.55;
-  font-weight: 400;
-}
-.poster.auto-doc .plain-block p + p { margin-top: 10px; }
-.poster.auto-doc .image-holder {
-  display: grid;
-  place-items: center;
-  min-height: 180px;
-}
-.poster.auto-doc .image-frame .image-holder { margin-top: 10px; }
-.poster.auto-doc .wide-image .doc-image {
-  width: auto;
-  max-width: 100%;
-  max-height: 560px;
-  object-fit: contain;
-}
-.poster.auto-doc .doc-table-wrap {
-  background: #fff;
-  border-radius: 10px;
-  padding: 18px;
-}
-.poster.auto-doc .doc-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 8px;
-  table-layout: fixed;
-}
-.poster.auto-doc .doc-table th,
-.poster.auto-doc .doc-table td {
-  vertical-align: middle;
-  border-radius: 8px;
-  padding: 12px;
-  font-size: 16px;
-  line-height: 1.45;
-}
-.poster.auto-doc .doc-table th {
-  background: #ff2b22;
-  color: #fff;
-  font-weight: 600;
-  text-align: center;
-}
-.poster.auto-doc .doc-table td { background: #f7f7f7; }
-.poster.auto-doc .doc-table .doc-image {
-  width: auto;
-  max-width: 100%;
-  max-height: 300px;
-  object-fit: contain;
-}
-
-/* Grey-square caption for example images (no red square, no highlight) */
-.poster.auto-doc .caption-line {
-  position: relative;
-  margin: 0;
-  padding-left: 25px;
-  color: #555;
-  font-size: 17px;
-  line-height: 1.4;
-  font-weight: 600;
-}
-.poster.auto-doc .caption-line::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 7px;
-  width: 11px;
-  height: 11px;
-  border-radius: 3px;
-  background: #d8d8d8;
-}
-.poster.auto-doc .text-block .caption-line { margin-top: 14px; }
-.poster.auto-doc .text-block .image-holder { margin-top: 10px; }
-/* Sub-level indent: example caption + images sit one level under their label,
-   aligned with .source-list (28px). */
-.poster.auto-doc .caption-line.indent { margin-left: 28px; }
-.poster.auto-doc .image-holder.indent { margin-left: 28px; }
-/* Third hierarchy level (Word ilvl>=1): deeper indent + hollow grey square. */
-.poster.auto-doc .source-list li.deep { margin-left: 28px; }
-.poster.auto-doc .source-list li.deep::before {
-  background: transparent;
-  border: 2px solid #c9c9c9;
-}
-
-/* Half-page-width images (used in 图文详情) */
-.poster.auto-doc .half-image .doc-image {
-  width: 100%;
-  max-width: 600px;
-  height: auto;
-  object-fit: contain;
-}
-
-/* Example images under a label (e.g. 短标题「示例：」): half the container
-   width and all equal width, regardless of each picture's aspect ratio. */
-.poster.auto-doc .sample-image .doc-image {
-  width: 50%;
-  max-width: 50%;
-  height: auto;
-  object-fit: contain;
-}
-
-/* Module-layout schematic: a clean, watermark-free redraw of the
-   "首张主图模块化布局图" reference image. The system is layout-AGNOSTIC: the
-   container fixes only the yellow fill + red border; the actual block positions,
-   sizes and wording come from the reference image. A model with vision must read
-   the real image, place each .ml-block on the grid to mirror the source's row /
-   column split and relative areas, and write the verbatim on-image text. */
-/* 首张主图模块化布局重绘：黄底红框容器；内部用 .ml-grid 网格 + .ml-block 色块，
-   每块的行列位置/跨度由模型按"那张图"的真实布局用内联 grid-column/grid-row 设定，
-   不再写死京东模板。每块用一种明显区分的颜色（黄底/红框固定，其余各异），文字居中。 */
-.poster.auto-doc .module-layout {
-  max-width: 620px;        /* keep the source schematic's portrait proportion */
-  margin: 0 auto;
-  background: #fff8e1;     /* fixed light-yellow fill */
-  border: 2px solid #ff2b22;  /* fixed red border */
-  border-radius: 14px;
-  padding: 16px;
-}
-/* The grid: the model sets grid-template-columns / -rows (and gap) inline to
-   reproduce the reference image's split, e.g. style="grid-template-columns:1fr 2fr". */
-.poster.auto-doc .module-layout .ml-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-.poster.auto-doc .module-layout .ml-block {
-  display: grid;
-  place-items: center;
-  text-align: center;       /* every block's text is centered */
-  border-radius: 10px;
-  padding: 18px 14px;
-  line-height: 1.3;
-  font-weight: 700;
-  font-size: 22px;
-}
-.poster.auto-doc .module-layout .ml-lg { font-size: 34px; }   /* emphasize the main product */
-.poster.auto-doc .module-layout .ml-tall { min-height: 280px; }
-/* Distinct fills the model assigns so neighbouring blocks stay clearly separated. */
-.poster.auto-doc .module-layout .ml-c1 { background: #cfe6ff; color: #134a73; }  /* blue */
-.poster.auto-doc .module-layout .ml-c2 { background: #ffe0b3; color: #7a4a12; }  /* orange */
-.poster.auto-doc .module-layout .ml-c3 { background: #d7f0d8; color: #1f5f2a; }  /* green */
-.poster.auto-doc .module-layout .ml-c4 { background: #e7e0f5; color: #3a2f78; }  /* purple */
-.poster.auto-doc .module-layout .ml-c5 { background: #ffd6e0; color: #8a2741; }  /* pink */
-.poster.auto-doc .module-layout .ml-c6 { background: #fff3b0; color: #7a6512; }  /* amber */
-.poster.auto-doc .module-layout .ml-c7 { background: #cdeeea; color: #0f5b54; }  /* teal */
-.poster.auto-doc .module-layout .ml-c8 { background: #f6d9c0; color: #8a4a1f; }  /* tan */
-
-/* 主图视频 play card — 「点击播放」 + play icon (solid dark-grey circle with a
-   hollow knocked-out triangle), dark grey on a light-pink ground, centred. */
-.poster.auto-doc .video-demo {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 18px;
-  padding: 40px 24px;
-  border-radius: 10px;
-  background: #fbe2ec;
-}
-.poster.auto-doc .video-demo .vd-text {
-  font-size: 30px;
-  font-weight: 700;
-  color: #555;
-}
-.poster.auto-doc .video-demo .vd-icon { width: 52px; height: 52px; display: block; }
-
-/* Conversion-metric emphasis bar: white fill, green outline, centred.
-   Black label + green "+X%" with an up-arrow. */
-.poster.auto-doc .metric-emphasis {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  width: 100%;
-  margin: 0;
-  padding: 18px 24px;
-  border: 2px solid #47b250;
-  border-radius: 14px;
-  background: #fff;
-  font-size: 24px;
-  font-weight: 700;
-}
-.poster.auto-doc .metric-emphasis .metric-text {
-  color: #111;
-  line-height: 1;
-}
-.poster.auto-doc .metric-emphasis .metric-value {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: #47b250;
-  font-size: 40px;
-  font-weight: 800;
-  line-height: 1;
-}
-.poster.auto-doc .metric-emphasis .metric-arrow {
-  height: 34px;
-  width: auto;
-  display: block;
-}
-/* Inside a white module, leave room between the bar and the table below it. */
-.poster.auto-doc .text-block .metric-emphasis { margin: 0 0 12px; }
-/* metric-emphasis multi-item: several indicators inline, separated by a left border */
-.poster.auto-doc .metric-item { display: inline-flex; align-items: center; gap: 8px; }
-.poster.auto-doc .metric-item + .metric-item { border-left: 1px solid #cfe8d4; padding-left: 12px; margin-left: 4px; }
-
-/* 4-column optimisation matrix (优化内容/案例/优化前/优化后), first column groups rows via rowspan */
-.poster.auto-doc .compare-matrix { width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff; }
-.poster.auto-doc .compare-matrix th, .poster.auto-doc .compare-matrix td { border: 1px solid #e5e5e5; padding: 12px; vertical-align: middle; text-align: center; }
-.poster.auto-doc .compare-matrix thead th { background: #ff2b22; color: #fff; font-weight: 700; }
-.poster.auto-doc .compare-matrix .cm-group { background: #f7f7f7; font-weight: 700; }
-/* 图片单元格铺满：图片 td 去内边距，holder/图片撑满，与表格上下左右对齐。
-   不用 object-fit/max-height——那会让图小一圈，且 html2canvas 不渲染 object-fit。 */
-.poster.auto-doc .compare-matrix td.cm-img { padding: 0; }
-.poster.auto-doc .compare-matrix td.cm-img .image-holder { margin: 0; width: 100%; min-height: 0; }
-.poster.auto-doc .compare-matrix td.cm-img .doc-image { width: 100%; height: auto; display: block; border-radius: 10px; }
-.poster.auto-doc .compare-matrix .doc-image { width: 100%; height: auto; display: block; }
-
-/* material-type table (素材图类型/内容要求/示例), 「示例」header spans two image columns */
-.poster.auto-doc .material-table { width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff; }
-.poster.auto-doc .material-table th, .poster.auto-doc .material-table td { border: 1px solid #e5e5e5;padding: 12px; vertical-align: middle; }
-.poster.auto-doc .material-table thead th { background: #ff2b22; color: #fff; font-weight: 700; text-align: center; }
-.poster.auto-doc .material-table .mt-type { text-align: center; font-weight: 700; }
-.poster.auto-doc .material-table .mt-req { text-align: left; }
-.poster.auto-doc .material-table .mt-eg { text-align: center; }
-/* 示例图单元格铺满：图片 td 去内边距，holder/图片撑满，与表格上下左右对齐。
-   不用 object-fit/max-height——那会让图小一圈，且 html2canvas 不渲染 object-fit。 */
-.poster.auto-doc .material-table td.mt-eg { padding: 0; }
-.poster.auto-doc .material-table td.mt-eg .image-holder { margin: 0; width: 100%; min-height: 0; }
-.poster.auto-doc .material-table .mt-eg .doc-image { width: 100%; height: auto; display: block; border-radius: 10px; }
-.poster.auto-doc .material-table col.mt-c1 { width: 16%; } .poster.auto-doc .material-table col.mt-c2 { width: 34%; }
-.poster.auto-doc .material-table col.mt-c3 { width: 25%; } .poster.auto-doc .material-table col.mt-c4 { width: 25%; }
-
-/* attribute / keyword-priority table: 2-col grey-red-grey text-only grid */
-.poster.auto-doc .attr-table { width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff; }
-.poster.auto-doc .attr-table td { border: 1px solid #e5e5e5; padding: 14px; text-align: center; font-weight: 700; }
-.poster.auto-doc .attr-table .at-grey { background: #f2f2f2; color: #333; }
-.poster.auto-doc .attr-table .at-red { background: #ff2b22; color: #fff; }
-
-/* tag-example image: doubled width (品质标签示例) */
-.poster.auto-doc .tag-example-table .doc-image { width: 100%; max-height: 600px; object-fit: contain; }
-
-/* layout placeholder for 首图模块化 schematic */
-.poster.auto-doc .layout-holder { display: flex; align-items: center; justify-content: center; min-height: 200px; border: 2px dashed #d9d9d9; border-radius: 10px; background: #fafafa; overflow: hidden; }
-.poster.auto-doc .layout-holder .doc-image { width: 100%; max-height: 520px; object-fit: contain; }
-
-
-/* Before / after compare (优化前 grey, 优化后 red) */
-.poster.auto-doc .ba-compare {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-}
-.poster.auto-doc .ba-col {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.poster.auto-doc .ba-head {
-  border-radius: 8px;
-  padding: 10px;
-  text-align: center;
-  font-size: 18px;
-  font-weight: 600;
-}
-.poster.auto-doc .ba-before { background: #f1f1f1; color: #555; }
-.poster.auto-doc .ba-after { background: #ff2b22; color: #fff; }
-.poster.auto-doc .ba-col .image-holder { min-height: 0; }
-.poster.auto-doc .ba-text { margin: 0; font-size: 15px; line-height: 1.45; color: #333; }
-
-/* Three-column spec table: 主图 narrowest, 内容要求 ~2x, 示例 half width */
-.poster.auto-doc .spec-table {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.poster.auto-doc .spec-row {
-  display: grid;
-  grid-template-columns: 1fr 2fr 3fr;
-  gap: 8px;
-  align-items: stretch;
-}
-.poster.auto-doc .spec-cell {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  text-align: center;
-  gap: 6px;
-  background: #f7f7f7;
-  border-radius: 8px;
-  padding: 12px;
-  font-size: 16px;
-  line-height: 1.45;
-  color: #333;
-}
-.poster.auto-doc .spec-head .spec-cell {
-  background: #ff2b22;
-  color: #fff;
-  font-weight: 600;
-  text-align: center;
-  align-items: center;
-}
-.poster.auto-doc .spec-cell .image-holder {
-  min-height: 0;
-  width: 100%;
-}
-.poster.auto-doc .spec-cell .doc-image {
-  /* Equal width via 100%, with height:auto driving the true aspect ratio.
-     No max-height / object-fit: those force a wrong-ratio box that html2canvas
-     (which ignores object-fit) would squish in the downloaded PNG. */
-  display: block;
-  width: 100%;
-  height: auto;
-}
-.edit-toolbar {
-  position: fixed;
-  right: 18px;
-  bottom: 18px;
-  z-index: 9999;
-  display: flex;
-  gap: 8px;
-  padding: 10px;
-  border-radius: 10px;
-  background: rgba(17, 17, 17, 0.88);
-  color: #fff;
-  font-family: "MiSans", "Microsoft YaHei", "PingFang SC", sans-serif;
-}
-.edit-toolbar button {
-  border: 0;
-  border-radius: 8px;
-  padding: 8px 12px;
-  background: #ff2b22;
-  color: #fff;
-  font-size: 13px;
-  line-height: 1;
-  cursor: pointer;
-}
-.edit-toolbar button.secondary { background: #555; }
-.dl-page-btn {
-  position: fixed;
-  right: 18px;
-  bottom: 18px;
-  z-index: 9999;
-  border: 0;
-  border-radius: 10px;
-  padding: 12px 18px;
-  background: #ff2b22;
-  color: #fff;
-  font-family: "MiSans", "Microsoft YaHei", "PingFang SC", sans-serif;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1;
-  cursor: pointer;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
-}
-.dl-page-btn[disabled] { opacity: 0.6; cursor: default; }
-.edit-page-btn {
-  position: fixed;
-  right: 168px;      /* sit to the left of 下载整页图片 so they don't overlap */
-  bottom: 18px;
-  z-index: 9999;
-  border: 0;
-  border-radius: 10px;
-  padding: 12px 18px;
-  background: #1f2329;
-  color: #fff;
-  font-family: "MiSans", "Microsoft YaHei", "PingFang SC", sans-serif;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1;
-  cursor: pointer;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
-}
-body.editing [contenteditable="true"] {
-  outline: 2px dashed rgba(255, 43, 34, 0.75);
-  outline-offset: 3px;
-  cursor: text;
-}
-
-/* ===== Card body copy scaled ~1.5x (to match the target screenshot) =====
-   Only the cards' body content grows; the hero and the title bar
-   (.section-head: chapter number, { 标题 }, INTRODUCTION) keep their sizes.
-   List dots, indents and module spacing scale with the text so proportions
-   stay balanced. Higher specificity (.poster.auto-doc .class) overrides the
-   §17 / base sizes above. */
-
-/* 1) Body font sizes */
-.poster.auto-doc .lead { font-size: 28px; }
-.poster.auto-doc .plain-block p { font-size: 28px; }
-.poster.auto-doc .red-list li,
-.poster.auto-doc .red-list b,
-.poster.auto-doc .red-list p { font-size: 28px; }
-.poster.auto-doc .label-line { font-size: 28px; }
-.poster.auto-doc .source-list li { font-size: 28px; }
-.poster.auto-doc .source-list b { font-size: 28px; }
-/* All text that follows a red-square title shares ONE size (28px): list items,
-   sub-captions ("示例图：") and example lines. Table cells keep their own
-   tighter tier below. */
-.poster.auto-doc .example-line { font-size: 28px; }
-.poster.auto-doc .caption-line { font-size: 28px; }
-.poster.auto-doc .doc-table th,
-.poster.auto-doc .doc-table td { font-size: 24px; }
-.poster.auto-doc .spec-cell { font-size: 24px; }
-.poster.auto-doc .ba-head { font-size: 27px; }
-.poster.auto-doc .ba-text { font-size: 23px; }
-/* Metric bar is NOT scaled with the body copy — it keeps the original
-   24/40px text and 34px arrow defined above. */
-
-/* Hero text scaled ~1.5x as well: main title, OPERATION STANDARDS, date.
-   The hero grows taller so the enlarged title, rule and date keep their
-   spacing and the white rule is not covered by the first card. */
-.poster.auto-doc .hero { height: 600px; }
-/* Clean hero background: flat brand-red, no gradient/grid texture/rings/dots. */
-.poster.auto-doc .hero {
-  background: #FF2B22;
-}
-.poster.auto-doc .hero::before,
-.poster.auto-doc .robot-deco,
-.poster.auto-doc .path-line,
-.poster.auto-doc .rings,
-.poster.auto-doc .ring { display: none; }
-/* Replaceable hero background overlay: a transparent image layered ON TOP of the
-   flat red but BEHIND the title text, and BLENDED with the red (mix-blend-mode)
-   so a replaced image composites with the brand red instead of sitting opaquely
-   on top. The red colour underneath is never changed.
-   IMPORTANT: do NOT re-position the hero children here — the base CSS already
-   gives .hero h1/.updated/.hero-mark/.hero-rule z-index:1, and .updated/.hero-mark
-   are position:absolute (pinned to the corners). Overriding them to position
-   relative drops the date/bracket into normal flow and breaks the hero. */
-.poster.auto-doc .hero { position: relative; overflow: hidden; isolation: isolate; }
-.poster.auto-doc .hero-overlay {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center;
-  z-index: 0;
-  display: block;
-  border: 0;
-  mix-blend-mode: overlay;
-}
-/* Arrows rendered as inline SVG (not a CSS background image) so html2canvas
-   keeps them in the downloaded full-page PNG. */
-.poster.auto-doc .en-label span,
-.poster.auto-doc .hero-rule { background: none; }
-.poster.auto-doc .en-label span > svg,
-.poster.auto-doc .hero-rule > svg { display: block; width: 100%; height: 100%; }
-.poster.auto-doc .hero h1 { font-size: 102px; max-width: 1140px; }
-.poster.auto-doc .hero-mark {
-  font-size: 21px;
-  width: 232px;
-  height: 93px;
-  border-radius: 48px;
-  border-width: 2px;
-}
-.poster.auto-doc .updated { font-size: 27px; }
-/* Bottom-align the update date with the white hero-rule arrow under the title. */
-.poster.auto-doc .updated { bottom: 165px; }
-
-/* 2) List dots scaled (~11 -> 16) */
-.poster.auto-doc .red-list li::before,
-.poster.auto-doc .label-line::before,
-.poster.auto-doc .source-list li::before,
-.poster.auto-doc .red-list li > p:not(.sub-dot)::before,
-.poster.auto-doc .sub-dot::before {
-  width: 16px;
-  height: 16px;
-  top: 13px;
-  border-radius: 4px;
-}
-.poster.auto-doc .caption-line::before {
-  width: 16px;
-  height: 16px;
-  top: 11px;
-  border-radius: 4px;
-}
-
-/* 3) Indents scaled */
-.poster.auto-doc .red-list li,
-.poster.auto-doc .label-line,
-.poster.auto-doc .caption-line { padding-left: 38px; }
-.poster.auto-doc .source-list { margin-left: 42px; }
-.poster.auto-doc .sub-dot { padding-left: 42px; }
-.poster.auto-doc .caption-line.indent,
-.poster.auto-doc .image-holder.indent { margin-left: 42px; }
-
-/* 4) Module spacing scaled */
-.poster.auto-doc .gray-panel > * + * { margin-top: 27px; }
-.poster.auto-doc .text-block { padding: 33px 39px; }
-.poster.auto-doc .lead { margin-bottom: 33px; padding: 36px 51px; }
-.poster.auto-doc .red-list li { margin-bottom: 24px; }
-.poster.auto-doc .spec-text .red-list li { margin-bottom: 27px; }
-.poster.auto-doc .label-line { margin-bottom: 15px; }
-.poster.auto-doc .source-list li { margin-top: 18px; }
-/* Content split off after a label's colon: aligned under the title text, no red
-   square, no pink bar, regular weight. */
-.poster.auto-doc .label-rest {
-  margin: 4px 0 0 38px;
-  font-size: 28px;
-  line-height: 1.5;
-  font-weight: 400;
-  color: #333;
-}
-/* A colon-less label keeps the red square but no pink highlight bar. */
-.poster.auto-doc .label-plain { font-weight: 600; }
-"""
-
+    return css
 
 EDITABLE_RUNTIME = """
 <div class="edit-toolbar" data-html-edit-toolbar data-html2canvas-ignore>
@@ -766,12 +267,20 @@ def image_frame(label: str, target: str, blobs: dict[str, bytes]) -> str:
     )
 
 
-def render_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes]) -> str:
+def render_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes], extra_class: str = "") -> str:
     rows_html: list[str] = []
     for row_idx, row in enumerate(table.rows):
         cells_html: list[str] = []
         tag = "th" if row_idx == 0 else "td"
-        for cell in row.cells:
+        header_texts = [clean_text(cell.text) for cell in row.cells]
+        repeated_header = (
+            row_idx == 0
+            and len(row.cells) > 1
+            and bool(header_texts[0])
+            and len(set(header_texts)) == 1
+        )
+        cells = row.cells[:1] if repeated_header else row.cells
+        for cell in cells:
             texts = [clean_text(p.text) for p in cell.paragraphs if clean_text(p.text)]
             image_html = []
             for paragraph in cell.paragraphs:
@@ -779,9 +288,11 @@ def render_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes]) -> 
                     if target in blobs:
                         image_html.append(f'<div class="image-holder">{image_tag(target, blobs, texts[0] if texts else "表格图片")}</div>')
             text_html = "<br>".join(esc(text) for text in texts)
-            cells_html.append(f"<{tag}>{text_html}{''.join(image_html)}</{tag}>")
+            colspan = f' colspan="{len(row.cells)}"' if repeated_header else ""
+            cells_html.append(f"<{tag}{colspan}>{text_html}{''.join(image_html)}</{tag}>")
         rows_html.append("<tr>" + "".join(cells_html) + "</tr>")
-    return '<div class="doc-table-wrap"><table class="doc-table">' + "".join(rows_html) + "</table></div>"
+    classes = "doc-table" + (f" {extra_class}" if extra_class else "")
+    return f'<div class="doc-table-wrap"><table class="{classes}">' + "".join(rows_html) + "</table></div>"
 
 
 def document_uses_heading_styles(blocks: list[ParagraphBlock | TableBlock]) -> bool:
@@ -959,6 +470,7 @@ def split_sections(blocks: list[ParagraphBlock | TableBlock]) -> tuple[str, list
 
 BRACKET_RE = re.compile(r"^\s*(【[^】]+】)\s*(.*)$")
 CIRCLED_RE = re.compile(r"^\s*[①②③④⑤⑥⑦⑧⑨⑩⑪⑫]")
+LOCAL_SUBHEAD_RE = re.compile(r"^\s*[（(][0-9一二三四五六七八九十]+[）)]")
 CONVERSION_RE = re.compile(r"^[一-龥A-Za-z·]{2,12}\s*[+＋]\s*\d+(?:\.\d+)?\s*%$")
 # "前缀：内容" lead-in, e.g. 总结：…/字数范围：…/卖点建议顺序：… — gets a red square + pink highlight.
 COLON_PREFIX_RE = re.compile(r"^([^：:\n]{1,18}[：:])(.+)$")
@@ -1093,7 +605,7 @@ def module_layout(items: list[str], fallback: str) -> str:
     the actual image). It just stacks the REAL captured 主图首张 module names in a
     single column, verbatim, each in a distinct colour. An agent WITH image-reading
     ability must replace this with a faithful redraw that mirrors the real image's
-    rows/columns and proportions (see references/design.md).
+    rows/columns and proportions (see references/components.md).
 
     Falls back to the raw image when fewer than two real module names are known."""
     names = [re.split(r"[：:]", it, 1)[0].strip() for it in items]
@@ -1158,11 +670,28 @@ def grouped_text_block(label: str | None, items: list[str], images: list[str], b
     return f'<div class="text-block">{inner}</div>' if inner else ""
 
 
-def classify_table(table: Table) -> str:
+def classify_table(table: Table, label: str | None = None, video_section: bool = False) -> str:
     if not table.rows:
         return "generic"
-    header = " ".join(clean_text(cell.text) for cell in table.rows[0].cells)
+    header_cells = [clean_text(cell.text) for cell in table.rows[0].cells]
+    header = " ".join(header_cells)
+    all_text = " ".join(clean_text(cell.text) for row in table.rows for cell in row.cells)
     ncol = len(table.rows[0].cells)
+    if video_section and VIDEO_HINT_RE.search(all_text):
+        return "video_case"
+    if all(name in header_cells for name in ("优化内容", "案例", "优化前", "优化后")):
+        return "compare_matrix"
+    if "素材图类型" in header_cells and "内容要求" in header_cells:
+        return "material"
+    attr_labels = {"适用肤质", "香型", "功效", "成分", "适用人群", "净含量"}
+    if ncol == 2 and attr_labels.issubset(set(all_text.split())):
+        return "attr"
+    if "品质标签示例" in header_cells:
+        return "tag_example"
+    # A module-layout source is not a before/after comparison. Keep the source
+    # image/text table intact for the mandatory model-led redraw step.
+    if label and "首图模块化" in label:
+        return "generic"
     if "优化前" in header or "优化后" in header:
         return "before_after"
     if ncol >= 3 and ("内容要求" in header or "示例" in header):
@@ -1217,15 +746,153 @@ def spec_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes]) -> st
     return f'<div class="spec-table">{"".join(rows_html)}</div>'
 
 
-def table_group(label: str | None, table: Table, doc: DocumentObject, blobs: dict[str, bytes], metric: str | None = None) -> str:
-    kind = classify_table(table)
+def cell_image_targets(cell: object, doc: DocumentObject, blobs: dict[str, bytes]) -> list[str]:
+    targets: list[str] = []
+    for paragraph in cell.paragraphs:  # type: ignore[attr-defined]
+        targets.extend(target for target in paragraph_images(doc, paragraph) if target in blobs)
+    return targets
+
+
+def compare_matrix(table: Table, doc: DocumentObject, blobs: dict[str, bytes]) -> str:
+    """Restore the PDF's grouped 4-column optimisation matrix."""
+    rows = list(table.rows)
+    if len(rows) < 2 or len(rows[0].cells) < 4:
+        return render_table(table, doc, blobs)
+    headers = [clean_text(cell.text) for cell in rows[0].cells[:4]]
+    body: list[str] = []
+    index = 1
+    while index < len(rows):
+        group_text = clean_text(rows[index].cells[0].text)
+        group_end = index + 1
+        while group_end < len(rows) and clean_text(rows[group_end].cells[0].text) == group_text:
+            group_end += 1
+        span = group_end - index
+        for row_index in range(index, group_end):
+            row = rows[row_index]
+            cells: list[str] = []
+            if row_index == index:
+                cells.append(f'<td class="cm-group" rowspan="{span}">{esc(group_text)}</td>')
+            case_text = clean_text(row.cells[1].text)
+            cells.append(f'<td class="cm-case">{esc(case_text)}</td>')
+
+            left_text = clean_text(row.cells[2].text)
+            right_text = clean_text(row.cells[3].text)
+            if case_text == "优化总结" and left_text and left_text == right_text:
+                paragraphs = [clean_text(p.text) for p in row.cells[2].paragraphs if clean_text(p.text)]
+                content = "".join(f"<p>{esc(text)}</p>" for text in paragraphs)
+                cells.append(f'<td class="cm-text" colspan="2">{content}</td>')
+            else:
+                for column in (2, 3):
+                    cell = row.cells[column]
+                    targets = cell_image_targets(cell, doc, blobs)
+                    texts = [clean_text(p.text) for p in cell.paragraphs if clean_text(p.text)]
+                    classes = "cm-img" if targets else "cm-text"
+                    content = "".join(
+                        f'<div class="image-holder">{image_tag(target, blobs, headers[column])}</div>'
+                        for target in targets
+                    )
+                    content += "".join(f"<p>{esc(text)}</p>" for text in texts)
+                    cells.append(f'<td class="{classes}">{content}</td>')
+            body.append("<tr>" + "".join(cells) + "</tr>")
+        index = group_end
+    colgroup = '<colgroup><col class="cm-c1"><col class="cm-c2"><col class="cm-c3"><col class="cm-c4"></colgroup>'
+    head = "<thead><tr>" + "".join(f"<th>{esc(text)}</th>" for text in headers) + "</tr></thead>"
+    return f'<table class="compare-matrix">{colgroup}{head}<tbody>{"".join(body)}</tbody></table>'
+
+
+def material_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes]) -> str:
+    rows = list(table.rows)
+    if len(rows) < 2 or len(rows[0].cells) < 4:
+        return spec_table(table, doc, blobs)
+    body: list[str] = []
+    for row in rows[1:]:
+        kind = clean_text(row.cells[0].text)
+        requirements = [clean_text(p.text) for p in row.cells[1].paragraphs if clean_text(p.text)]
+        cells = [f'<td class="mt-type">{esc(kind)}</td>', f'<td class="mt-req">{"<br>".join(esc(x) for x in requirements)}</td>']
+        for column in (2, 3):
+            targets = cell_image_targets(row.cells[column], doc, blobs)
+            content = "".join(
+                f'<div class="image-holder">{image_tag(target, blobs, kind + "示例")}</div>'
+                for target in targets
+            )
+            cells.append(f'<td class="mt-eg">{content}</td>')
+        body.append("<tr>" + "".join(cells) + "</tr>")
+    return (
+        '<table class="material-table">'
+        '<colgroup><col class="mt-c1"><col class="mt-c2"><col class="mt-c3"><col class="mt-c4"></colgroup>'
+        '<thead><tr><th>素材图类型</th><th>内容要求</th><th colspan="2">示例</th></tr></thead>'
+        f'<tbody>{"".join(body)}</tbody></table>'
+    )
+
+
+def attribute_direction_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes]) -> str:
+    rows = list(table.rows)
+    if len(rows) < 6:
+        return render_table(table, doc, blobs)
+    body: list[str] = []
+    for pair_index, row_index in enumerate(range(0, len(rows), 2)):
+        if row_index + 1 >= len(rows):
+            break
+        head_class = "attr-head-red" if pair_index % 2 else "attr-head-gray"
+        labels = [clean_text(cell.text) for cell in rows[row_index].cells[:2]]
+        body.append("<tr>" + "".join(f'<th class="{head_class}">{esc(label)}</th>' for label in labels) + "</tr>")
+        image_cells: list[str] = []
+        for column in (0, 1):
+            targets = cell_image_targets(rows[row_index + 1].cells[column], doc, blobs)
+            content = "".join(
+                f'<div class="image-holder">{image_tag(target, blobs, labels[column])}</div>'
+                for target in targets
+            )
+            image_cells.append(f'<td class="attr-img">{content}</td>')
+        body.append("<tr>" + "".join(image_cells) + "</tr>")
+    return f'<table class="attr-table"><tbody>{"".join(body)}</tbody></table>'
+
+
+def video_case_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes]) -> str:
+    rows = list(table.rows)
+    if len(rows) < 2 or len(rows[0].cells) < 2:
+        return video_demo_box()
+    copy_cell, media_cell = rows[1].cells[:2]
+    paragraphs = [clean_text(p.text) for p in copy_cell.paragraphs if clean_text(p.text)]
+    copy_html = "".join(f'<p class="ba-text">{esc(text)}</p>' for text in paragraphs)
+    targets = cell_image_targets(media_cell, doc, blobs)
+    media_html = video_demo_box() + "".join(
+        f'<div class="image-holder">{image_tag(target, blobs, "视频案例")}</div>' for target in targets
+    )
+    return (
+        '<div class="video-case-grid">'
+        f'<div class="video-case-copy"><div class="video-case-head">视频案例</div><div class="video-case-body">{copy_html}</div></div>'
+        f'<div class="video-case-media">{media_html}</div>'
+        '</div>'
+    )
+
+
+def table_group(
+    label: str | None,
+    table: Table,
+    doc: DocumentObject,
+    blobs: dict[str, bytes],
+    metric: str | None = None,
+    video_section: bool = False,
+) -> str:
+    kind = classify_table(table, label=label, video_section=video_section)
     if kind == "before_after":
         inner = before_after(table, doc, blobs)
     elif kind == "spec":
         inner = spec_table(table, doc, blobs)
+    elif kind == "compare_matrix":
+        inner = compare_matrix(table, doc, blobs)
+    elif kind == "material":
+        inner = material_table(table, doc, blobs)
+    elif kind == "attr":
+        inner = attribute_direction_table(table, doc, blobs)
+    elif kind == "video_case":
+        inner = video_case_table(table, doc, blobs)
+    elif kind == "tag_example":
+        inner = render_table(table, doc, blobs, extra_class="tag-example-table")
     else:
         label_html = label_line(label) if label else ""
-        return f'<div class="text-block">{label_html}</div>{render_table(table, doc, blobs)}' if label else render_table(table, doc, blobs)
+        return f'<div class="text-block">{label_html}{render_table(table, doc, blobs)}</div>' if label else render_table(table, doc, blobs)
     label_html = label_line(label) if label else ""
     # Embedded metric (e.g. 商详转化率+2%) sits under the title, spanning the same
     # width as the before/after (优化前+优化后) columns below it.
@@ -1323,10 +990,10 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
                 metric = pending_metric
                 pending_label = None
                 pending_metric = None
-                rendered.append(table_group(label, block.table, doc, blobs, metric=metric))
+                rendered.append(table_group(label, block.table, doc, blobs, metric=metric, video_section=video_section))
             else:
                 flush_label()
-                rendered.append(table_group(None, block.table, doc, blobs))
+                rendered.append(table_group(None, block.table, doc, blobs, video_section=video_section))
             continue
 
         if block.images and not block.text:
@@ -1372,6 +1039,17 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
             if not (video_section and video_card_done):
                 rendered.append(video_demo_box())
                 video_card_done = True
+            continue
+
+        # Numbered local subtitles such as （1）…（4） belong to the following
+        # table inside the same white module; they are never standalone chapters.
+        if LOCAL_SUBHEAD_RE.match(text) and table_follows(idx):
+            flush_plain()
+            flush_bracket()
+            flush_label()
+            pending_label = text
+            pending_items = []
+            pending_images = []
             continue
 
         # A caption-like line immediately followed by a TABLE is that table's
@@ -1611,11 +1289,11 @@ def editor_runtime() -> str:
     )
 
 
-def render_html(docx_path: Path, design_path: Path, font_path: Path | None, updated_label: str, editable: bool) -> str:
+def render_html(docx_path: Path, style_path: Path, font_path: Path | None, updated_label: str, editable: bool) -> str:
     doc = Document(docx_path)
     blobs = image_target_to_blob(doc)
     title, sections = split_sections(iter_blocks(doc))
-    css = extract_css(design_path, font_path)
+    css = load_css(style_path, font_path)
     cards: list[str] = []
     chapter = 1
     for section_title, section_blocks, section_metric in sections:
@@ -1665,12 +1343,12 @@ def docx_inputs(input_path: Path) -> list[Path]:
     return sorted(path for path in input_path.rglob("*.docx") if not path.name.startswith("~$"))
 
 
-def generate_one(docx_path: Path, output_dir: Path, design_path: Path, font_path: Path | None, updated_value: str | None, editable: bool) -> dict[str, Any]:
+def generate_one(docx_path: Path, output_dir: Path, style_path: Path, font_path: Path | None, updated_value: str | None, editable: bool) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     out_html = output_dir / f"{slugify(docx_path.stem)}-output.html"
     report_path = output_dir / f"{slugify(docx_path.stem)}-report.json"
     updated_label = normalize_update_label(updated_value, docx_path)
-    html_text = render_html(docx_path, design_path, font_path, updated_label, editable)
+    html_text = render_html(docx_path, style_path, font_path, updated_label, editable)
     out_html.write_text(html_text, encoding="utf-8")
     report = validate(docx_path, out_html)
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -1687,7 +1365,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Batch-generate single-file HTML from DOCX files.")
     parser.add_argument("input", type=Path, help="A .docx file or a folder containing .docx files.")
     parser.add_argument("output_dir", type=Path, help="Folder for generated HTML and reports.")
-    parser.add_argument("--design", type=Path, default=DEFAULT_DESIGN)
+    parser.add_argument(
+        "--style", "--design", dest="style", type=Path, default=DEFAULT_STYLE,
+        help="CSS stylesheet path. --design remains as a compatibility alias and also accepts legacy Markdown design files.",
+    )
     parser.add_argument("--font", type=Path, default=DEFAULT_FONT)
     parser.add_argument("--updated", default=None, help='Hero update label. Examples: "2026.06" or "更新日期 2026年06月".')
     parser.add_argument("--editable", action="store_true", help="Add an optional in-page text editing toolbar and download button.")
@@ -1699,7 +1380,7 @@ def main() -> int:
         raise SystemExit(f"No .docx files found: {args.input}")
 
     font_path = args.font if args.font and args.font.exists() else None
-    summary = [generate_one(path, args.output_dir, args.design, font_path, args.updated, args.editable) for path in inputs]
+    summary = [generate_one(path, args.output_dir, args.style, font_path, args.updated, args.editable) for path in inputs]
     summary_path = args.output_dir / "batch-summary.json"
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"count": len(summary), "summary": str(summary_path), "items": summary}, ensure_ascii=False, indent=2))
