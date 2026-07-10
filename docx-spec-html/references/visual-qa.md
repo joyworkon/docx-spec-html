@@ -32,7 +32,10 @@ Confirm:
 - red-square labels, title-only pink highlight, grey-square nested items, and consistent indentation;
 - approximately 28px body text without clipping or overlap;
 - proportional, centered images and unclipped captions;
-- aligned table columns, merged headers/cells, and centered comparison content;
+- aligned table columns and merged headers/cells; body copy is justified with its final line aligned left while headers remain centered;
+- one consistent rounded-card table system: 24px justified body copy, 24px/700 centered red top headers, light-grey body cells, bold short first-column row headers, 10px corners, 8px gaps, and 12px equal inset around every table image;
+- grey-square bracket children aligned to the exact `.source-list` nested indent, identical typography across numbered siblings, and pink markers on all module-local numbered subtitles;
+- equal-height `视频案例` / `点击播放` headers with the play icon retained;
 - two-column long image runs rather than cramped four-column grids;
 - no empty card, white-card collision, unexpected chapter, or source-order change.
 
@@ -45,6 +48,14 @@ Run:
 ```bash
 python3 scripts/validate_output.py source.docx final-output.html --strict
 ```
+
+Then run:
+
+```bash
+python3 scripts/review_gate.py source.docx final-output.html [--profile body-care] --out review-report.json
+```
+
+The gate rejects missing release metadata, multiple/stacked stylesheets, known hierarchy and table regressions, external assets, missing controls, and body-care profile mismatches. It intentionally does not claim to replace screenshot and runtime inspection.
 
 Resolve missing or underrepresented text, image-count mismatch, table loss, and CSS invariant failures before delivery.
 

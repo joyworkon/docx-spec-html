@@ -13,15 +13,15 @@ Read this file only when the source contains the corresponding component. Exact 
 
 ### Multi-row optimization matrix
 
-Use `.compare-matrix` for `优化内容 | 案例 | 优化前 | 优化后`. Merge each optimization group with `rowspan`; keep case rows and summary rows aligned. Put paired before/after images in the corresponding row. Image cells use `.cm-img` with zero padding and proportional full-width images.
+Use `.compare-matrix` for `优化内容 | 案例 | 优化前 | 优化后`. Merge each optimization group with `rowspan`; keep case rows and summary rows aligned. Put paired before/after images in the corresponding row. Image cells use `.cm-img` with the canonical equal inset and proportional full-width images.
 
 ### Material-type table
 
-Use `.material-table` for `素材图类型 | 内容要求 | 示例`. Let the 示例 header span two image columns. Use four tracks at approximately `16% / 34% / 25% / 25%`; keep the two examples equal width and flush with cell edges.
+Use `.material-table` for `素材图类型 | 内容要求 | 示例`. Let the 示例 header span two image columns. Use four tracks at approximately `16% / 34% / 25% / 25%`; keep the two examples equal width with the same inset on all four sides.
 
 ### Attribute or keyword-direction table
 
-Use `.attr-table` for text-only paired directions. Apply grey–red–grey alternating groups when shown by the PDF. In body-care documents, `适用肤质/香型 | 功效/成分 | 适用人群/净含量` belongs to 通用卖点, not 属性.
+Use `.attr-table` for paired directions. Default every header to the same brand red. Use an alternate header colour only when the source explicitly assigns a different semantic role; PDF colour variation alone is not evidence. In body-care documents, `适用肤质/香型 | 功效/成分 | 适用人群/净含量` belongs to 通用卖点, not 属性.
 
 ### Standard tables
 
@@ -30,6 +30,9 @@ Use `.attr-table` for text-only paired directions. Apply grey–red–grey alter
 - Use `.ba-compare` for two-column 优化前/优化后 material; grey header before, red header after.
 - Merge repeated adjacent headers with `colspan` when the PDF shows one shared heading.
 - Use `.tag-example-table` when a tag example must appear larger than the draft default.
+- All semantic tables share one visual tier: separate rounded cells, 8px gaps, 10px corners, justified 24px body copy with the final line aligned left, uniform light-grey `#f7f7f7` body cells, centred red 24px/700 top headers, and 12px equal inset around every image.
+- Apply the media inset to `.cm-img`, `.mt-eg`, `.ba-col .image-holder`, attribute images, generic Word-table images, and specification-table images. Never use `padding: 0` to make table media touch a card edge.
+- Add `.row-head` to a non-empty first-column body cell when its compact text is shorter than 10 characters; this makes short labels such as `首图`、`第二张`、`白底图` bold. Do not infer row-header weight for longer first-column prose.
 
 ## 2. Image layouts
 
@@ -52,7 +55,7 @@ Never preserve aspect ratio through `object-fit: contain` plus a fixed box for e
 
 ## 4. Video and export runtime
 
-In the 主图视频 module, collapse all click-to-watch signals into one `.video-play-card` with `点击播放`. Do not expose source URLs as text links.
+In the 主图视频 module, collapse all click-to-watch signals into one `点击播放` card. Pair `视频案例` and `点击播放` as equal-height table-style headers and keep the inline play icon. Do not expose source URLs as text links.
 
 For page export:
 

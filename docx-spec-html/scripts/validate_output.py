@@ -130,6 +130,11 @@ def structural_checks(html_text: str, visible: str, expected_images: int) -> tup
     image_frame_count = count_class(html_text, "image-frame")
     screens_grid_count = count_class(html_text, "screens-grid")
     detail_screen_grid_count = count_class(html_text, "detail-screen-grid")
+    sublevel_count = count_class(html_text, "sublevel")
+    row_head_count = count_class(html_text, "row-head")
+    metric_count = count_class(html_text, "metric-emphasis")
+    video_case_count = count_class(html_text, "video-case-grid")
+    video_case_card_count = count_class(html_text, "video-case-card")
     screen_count = len(re.findall(r"第\s*\d+\s*屏|【第\s*\d+\s*屏】", visible))
     # A genuine formula/caption under an image looks like "[图A] + [图B] = 效果":
     # bracketed terms joined by + AND resolved with an = result. Structured title
@@ -137,6 +142,39 @@ def structural_checks(html_text: str, visible: str, expected_images: int) -> tup
     # NOT an image caption, so it must not trigger the caption-image-card rule.
     formula_caption_like = bool(
         re.search(r"\[[^\]]+\]\s*\+[^=\n]*=", visible)
+    )
+    overview_sublevels_needed = all(
+        text in visible for text in ("【主图】", "首张主图：", "主图前5张：", "丰富素材图类型：")
+    )
+    sublevel_indent_present = all(
+        token in html_text
+        for token in (
+            "--nested-group-indent: 42px",
+            "--nested-text-offset: 25px",
+            "margin-left: var(--nested-group-indent)",
+            "padding-left: var(--nested-text-offset)",
+        )
+    )
+    numbered_item_bolded = bool(
+        re.search(r"<li\b[^>]*>\s*<b>\s*(?:\d+|[一二三四五六七八九十]+)[、.．]", html_text)
+    )
+    local_subtitle_plain = bool(
+        re.search(
+            r'class="[^"]*\blabel-plain\b[^"]*"[^>]*>\s*[（(][0-9一二三四五六七八九十]+[）)]',
+            html_text,
+        )
+    )
+    table_system_tokens = (
+        "--table-font-size: 24px",
+        "--table-header-weight: 700",
+        "--table-body-weight: 400",
+        "--table-body-bg: #f7f7f7",
+        "--table-cell-radius: 10px",
+        "--table-cell-gap: 8px",
+        "--table-media-padding: 12px",
+        "border-collapse: separate",
+        "text-align: justify",
+        "text-align-last: left",
     )
 
     checks = {
@@ -153,6 +191,24 @@ def structural_checks(html_text: str, visible: str, expected_images: int) -> tup
         "many_screen_examples_use_detail_grid": screen_count < 5 or detail_screen_grid_count > 0,
         "detail_grid_not_four_column_screens_grid": screen_count < 5
         or screens_grid_count == 0,
+        "overview_children_use_grey_sublevels": not overview_sublevels_needed
+        or (sublevel_count >= 3 and sublevel_indent_present),
+        "numbered_siblings_keep_equal_weight": not numbered_item_bolded,
+        "local_numbered_subtitles_use_pink_marker": not local_subtitle_plain,
+        "conversion_metrics_use_green_component": "效果数据" not in visible or metric_count > 0,
+        "rounded_table_typography_system_present": all(token in html_text for token in table_system_tokens),
+        "short_first_column_cells_use_row_headers": (
+            "material-table" not in html_text and "spec-table" not in html_text
+        ) or row_head_count > 0,
+        "attribute_headers_default_to_red": count_class(html_text, "attr-head-gray") == 0
+        or count_class(html_text, "is-semantic-alt") > 0,
+        "video_case_headers_share_one_component": video_case_count == 0
+        or (
+            video_case_count == video_case_card_count
+            and "video-demo" in html_text
+            and "--video-header-height: 72px" in html_text
+            and "height: var(--video-header-height)" in html_text
+        ),
     }
 
     messages = {
@@ -164,6 +220,14 @@ def structural_checks(html_text: str, visible: str, expected_images: int) -> tup
         "caption_images_keep_text_below_images": "Formula or caption text after an image must use caption-image-card, with image above and caption below.",
         "many_screen_examples_use_detail_grid": "Five or more screen/detail examples must use detail-screen-grid instead of a vertical list or cramped grid.",
         "detail_grid_not_four_column_screens_grid": "Screen/detail examples must not use the four-column screens-grid pattern; use the two-column detail-screen-grid.",
+        "overview_children_use_grey_sublevels": "Children under a bracket parent such as 【主图】 must use grey-square sublevel items with the same 42px/25px indentation geometry as source-list children.",
+        "numbered_siblings_keep_equal_weight": "Numbered siblings such as 1、/2、/3、 must keep equal weight; do not bold only the item that contains a colon.",
+        "local_numbered_subtitles_use_pink_marker": "Module-local numbered subtitles must use label-text with the pink marker, not label-plain.",
+        "conversion_metrics_use_green_component": "Effect/conversion metrics must use the green metric-emphasis component.",
+        "rounded_table_typography_system_present": "Semantic tables must embed the canonical rounded 24px justified-body table-card system with equal image insets.",
+        "short_first_column_cells_use_row_headers": "Short first-column body labels must use the bold row-head class.",
+        "attribute_headers_default_to_red": "Attribute/keyword headers default to red; grey headers require an explicit is-semantic-alt role.",
+        "video_case_headers_share_one_component": "视频案例 and 点击播放 must share the video-case-card component with equal-height headers and the play control.",
     }
     warnings = [message for key, message in messages.items() if not checks[key]]
     return checks, warnings
@@ -224,7 +288,10 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
             underrepresented.append({"text": text, "expected": expected, "actual": actual})
 
     expected_images = docx_image_count(docx_path)
-    actual_images = len(re.findall(r"<img\b", html_text, flags=re.I))
+    all_images = len(re.findall(r"<img\b", html_text, flags=re.I))
+    # Synthetic Hero overlays are UI/runtime assets, not DOCX content images.
+    synthetic_images = count_class(html_text, "hero-overlay")
+    actual_images = max(0, all_images - synthetic_images)
     # A 模块化布局图 schematic is intentionally redrawn as a .module-layout block
     # instead of embedding the raw image, so each redraw stands in for one image.
     redrawn_images = len(re.findall(r'class="[^"]*module-layout', html_text))
@@ -269,8 +336,8 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
         warnings.append("Some DOCX text fragments are missing from visible HTML text.")
     if underrepresented:
         warnings.append("Some repeated DOCX text fragments appear fewer times in HTML.")
-    if effective_images < expected_images:
-        warnings.append("HTML image count is lower than DOCX image occurrence count.")
+    if effective_images != expected_images:
+        warnings.append("HTML content image count plus semantic redraws must exactly match DOCX image occurrences.")
     if expected_tables and actual_table_like < expected_tables:
         warnings.append("DOCX contains tables; HTML may not preserve all table-like structures.")
     if not all(css_checks.values()):
@@ -288,6 +355,7 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
         "underrepresented_texts": underrepresented[:50],
         "expected_image_count": expected_images,
         "actual_image_count": actual_images,
+        "synthetic_image_count": synthetic_images,
         "redrawn_image_count": redrawn_images,
         "expected_table_count": expected_tables,
         "actual_table_like_count": actual_table_like,
