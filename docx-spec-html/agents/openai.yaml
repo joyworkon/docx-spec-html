@@ -1,4 +1,4 @@
 interface:
   display_name: "DOCX Spec HTML"
   short_description: "Build production spec HTML from DOCX/PDF"
-  default_prompt: "Use $docx-spec-html to reconstruct this DOCX/PDF specification into a validated single-file HTML page. Use PDF only for content hierarchy and table geometry; apply the Skill's canonical rounded-card system with justified body copy and equal image insets."
+  default_prompt: "Use $docx-spec-html to reconstruct this DOCX/PDF specification with canonical components, validate DOM contracts, and publish only through finalize_output.py. Use PDF only for hierarchy and table geometry; never hand-author alternate component wrappers or classes."

@@ -55,7 +55,7 @@ Then run:
 python3 scripts/review_gate.py source.docx final-output.html [--profile body-care] --out review-report.json
 ```
 
-The gate rejects missing release metadata, multiple/stacked stylesheets, known hierarchy and table regressions, external assets, missing controls, and body-care profile mismatches. It intentionally does not claim to replace screenshot and runtime inspection.
+The gate rejects missing release metadata, multiple/stacked stylesheets, known hierarchy and table regressions, external assets, missing controls, body-care profile mismatches, nested red lists, prose without `.plain-block`, malformed tag-example tables, and table images attached to the wrong media-cell component. The profile is auto-detected by default.
 
 Resolve missing or underrepresented text, image-count mismatch, table loss, and CSS invariant failures before delivery.
 
@@ -64,7 +64,7 @@ Two intentional exceptions are already encoded in the validator:
 - `.hero-overlay` is synthetic and does not require an `.image-holder`.
 - `.caption-image-card` is required only for genuine image formulas containing an equals result, not title syntax containing brackets and plus signs.
 
-Validation passing is necessary but not sufficient; browser inspection remains mandatory.
+Validation passing is necessary but not sufficient; browser inspection remains mandatory. Publish only through `finalize_output.py`, which binds the reviewed HTML hash to the report and does not emit failed candidates.
 
 ## 4. Delivery
 

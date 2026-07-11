@@ -22,7 +22,7 @@ Convert Word specification documents into polished 1280px single-file HTML pages
 - Read `references/visual-qa.md` before final delivery and whenever browser/export rendering differs.
 - Use `assets/styles.css` as the single canonical stylesheet. Do not copy CSS into Markdown references.
 - Compare visual treatment with `assets/examples/auto-oil-golden-reference.html` and its three compressed WebP snapshots.
-- Use `scripts/extract_docx_manifest.py`, `scripts/batch_generate.py`, `scripts/validate_output.py`, and `scripts/review_gate.py` for deterministic extraction, draft generation, source validation, and post-generation rule gates.
+- Use `scripts/extract_docx_manifest.py` and `scripts/batch_generate.py` for deterministic extraction and draft generation. Use `scripts/dom_contracts.py` and `scripts/review_gate.py` for component/DOM validation. Publish production work only through `scripts/finalize_output.py`.
 
 ## Required workflow
 
@@ -41,21 +41,28 @@ Convert Word specification documents into polished 1280px single-file HTML pages
 
    Use `--style path.css` for custom CSS. Legacy `--design path.md` remains compatible. Add `--editable` only for an explicitly editable review copy.
 
-4. Reconstruct hierarchy against the PDF. Resolve module boundaries, captions, merged cells, alternating headers, and image groupings with model judgment.
+4. Reconstruct hierarchy against the PDF. Resolve module boundaries, captions, merged cells, alternating headers, and image groupings with model judgment. Choose existing semantic components; never hand-author alternate wrappers or class combinations for them.
 5. Review the HTML screen-by-screen against the PDF and golden reference. Fix every mismatch.
-6. Validate the final page:
+6. During iteration, validate the candidate page:
 
    ```bash
    python3 scripts/validate_output.py source.docx final-output.html --strict
    ```
 
-7. Run the deterministic review gate. Use the body-care profile for this regression document:
+7. During iteration, run the deterministic review gate. It auto-detects the body-care profile:
 
    ```bash
-   python3 scripts/review_gate.py source.docx final-output.html --profile body-care --out review-report.json
+   python3 scripts/review_gate.py source.docx candidate.html --profile auto --out review-report.json
    ```
 
-8. Complete the manual visual/runtime checks listed by the gate. Do not deliver on a failed gate.
+8. Complete the manual visual/runtime checks listed by the gate.
+9. Publish through the only supported production exit. It re-runs source validation and DOM contracts, binds the final HTML SHA-256 to its report, and refuses to write a failed output:
+
+   ```bash
+   python3 scripts/finalize_output.py source.docx candidate.html final-output.html --profile auto --report review-report.json
+   ```
+
+Never deliver a candidate file or copy/rename it into place without this finalization step.
 
 ## Non-negotiable output rules
 
@@ -71,6 +78,7 @@ Convert Word specification documents into polished 1280px single-file HTML pages
 - Keep card body text near 28px and the enlarged 600px Hero proportions defined by the canonical stylesheet. Do not override Hero child positioning.
 - Use `.detail-screen-grid` for five or more consecutive screen examples. Use `.sample-image` only for two or more same-label examples; use `.half-image` for 图文详情 examples.
 - Use `.metric-emphasis` for conversion-rate metrics, `.ba-compare` for before/after comparisons, and `.spec-table` for three-column specifications.
+- Treat canonical component DOM as immutable. Model judgment selects a component and maps source content into it; the generator owns its wrapper nesting and classes. Do not nest `.red-list` inside `.red-list`, omit `.plain-block` from independent prose, or detach a variant class such as `.tag-example-table` from its required base class.
 - Render every semantic table with the one rounded-card system: 24px justified body text with the final line aligned left, 24px/700 centred red top headers, uniform light-grey `#f7f7f7` body cells, 10px cell corners, 8px gaps, and 12px equal inset around every table image. Use a non-red header only when the source explicitly gives it a distinct semantic role—not merely because the PDF uses another colour.
 - In a table body, a non-empty first-column text cell shorter than 10 characters is a vertical row header by default and must be bold. Keep longer first-column prose at body weight unless its semantics explicitly require emphasis.
 - Keep numbered siblings such as `1、` / `2、` / `3、` at identical weight and hierarchy. A colon inside one sibling, such as `3、时长：`, must not make only that sibling bold.
@@ -89,7 +97,7 @@ Convert Word specification documents into polished 1280px single-file HTML pages
 9. Under a bracket parent such as `【主图】`, render its explanatory children with grey squares, no pink highlight, and exactly the same nested indentation geometry as `.source-list` (`42px` group indent plus `25px` text offset at production scale); do not let the generic red-list rule override `.sublevel`.
 10. Give every module-local `（1）`–`（4）` subtitle a pink marker. If a trailing parenthetical note contains a colon, keep that whole parenthesis together on the next line.
 11. Align `视频案例` and `点击播放` as equal-height table-style headers; retain the inline play icon. Keep all table/card media proportional and use the canonical 12px equal padding on every side; never make an image flush with its card edge.
-12. Run `review_gate.py`; then inspect screenshots and smoke-test both floating controls. The deterministic gate catches known structural/style regressions, while visual review remains responsible for overlap, clipping, density, and aesthetic balance.
+12. Confirm `review_gate.py` passes its DOM component contracts; then inspect screenshots and smoke-test both floating controls. Deliver only the file emitted by `finalize_output.py` with a matching SHA-256 review report.
 
 ## Editable review mode
 
