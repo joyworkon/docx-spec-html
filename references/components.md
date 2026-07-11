@@ -25,14 +25,16 @@ Use `.attr-table` for paired directions. Default every header to the same brand 
 
 ### Standard tables
 
-- Use `.spec-table` for `主图 | 内容要求 | 示例`, with approximately `1fr 2fr 3fr` tracks and centered cells.
+- Use `.spec-table` for `主图 | 内容要求 | 示例`, with approximately `1fr 2fr 3fr` tracks; keep body copy justified/last-line-left and top headers centered.
 - Use `.word-table-spec` for other three-column semantic tables. Share one column track across all rows.
 - Use `.ba-compare` for two-column 优化前/优化后 material; grey header before, red header after.
 - Merge repeated adjacent headers with `colspan` when the PDF shows one shared heading.
 - Use `.tag-example-table` when a tag example must appear larger than the draft default.
+- A tag example is always `.doc-table.tag-example-table` inside `.doc-table-wrap`; its first row contains non-empty `<th>` cells and every image body cell uses `.table-media-cell > .image-holder > img`. The variant class never replaces the required `.doc-table` base class.
 - All semantic tables share one visual tier: separate rounded cells, 8px gaps, 10px corners, justified 24px body copy with the final line aligned left, uniform light-grey `#f7f7f7` body cells, centred red 24px/700 top headers, and 12px equal inset around every image.
 - Apply the media inset to `.cm-img`, `.mt-eg`, `.ba-col .image-holder`, attribute images, generic Word-table images, and specification-table images. Never use `padding: 0` to make table media touch a card edge.
 - Add `.row-head` to a non-empty first-column body cell when its compact text is shorter than 10 characters; this makes short labels such as `首图`、`第二张`、`白底图` bold. Do not infer row-header weight for longer first-column prose.
+- Independent prose always uses `.text-block.plain-block > p`; `.text-block` alone is only a white wrapper and does not carry the canonical 28px prose contract.
 
 ## 2. Image layouts
 

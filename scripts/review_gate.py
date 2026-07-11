@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from pathlib import Path
 
 from batch_generate import SKILL_RELEASE
+from dom_contracts import evaluate_dom_contracts
 from validate_output import count_class, strip_tags, validate
 
 
@@ -104,9 +106,13 @@ def body_care_checks(html: str, report: dict) -> dict[str, bool]:
     }
 
 
-def review(docx: Path, html_path: Path, profile: str | None) -> dict:
+def review(docx: Path, html_path: Path, profile: str | None = "auto") -> dict:
     html = html_path.read_text(encoding="utf-8")
     source_report = validate(docx, html_path)
+    requested_profile = profile or "auto"
+    dom_profile = None if requested_profile == "generic" else requested_profile
+    dom_checks, body_care_profile = evaluate_dom_contracts(html, dom_profile)
+    effective_profile = "body-care" if body_care_profile else None
     generic_checks = {
         "strict_source_validation": bool(source_report.get("passed")),
         "release_marker_present": bool(
@@ -140,14 +146,17 @@ def review(docx: Path, html_path: Path, profile: str | None) -> dict:
         and "id=\"dl-page-btn\"" in html,
         "inline_svg_contract": "<svg" in html and "class=\"metric-arrow\"" in html,
     }
-    profile_checks = body_care_checks(html, source_report) if profile == "body-care" else {}
-    checks = {**generic_checks, **profile_checks}
+    profile_checks = body_care_checks(html, source_report) if effective_profile == "body-care" else {}
+    checks = {**generic_checks, **dom_checks, **profile_checks}
     warnings = [name for name, passed in checks.items() if not passed]
     return {
         "release": SKILL_RELEASE,
         "source": str(docx),
         "html": str(html_path),
-        "profile": profile,
+        "requested_profile": requested_profile,
+        "profile": effective_profile or "generic",
+        "source_sha256": hashlib.sha256(docx.read_bytes()).hexdigest(),
+        "html_sha256": hashlib.sha256(html_path.read_bytes()).hexdigest(),
         "checks": checks,
         "source_validation": {
             "passed": source_report.get("passed"),
@@ -174,7 +183,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run deterministic post-generation review gates.")
     parser.add_argument("docx", type=Path)
     parser.add_argument("html", type=Path)
-    parser.add_argument("--profile", choices=["body-care"])
+    parser.add_argument("--profile", choices=["auto", "body-care", "generic"], default="auto")
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()
     result = review(args.docx, args.html, args.profile)

@@ -41,6 +41,7 @@ Never pull later material forward to improve visual balance. Split or combine wr
 - Independent prose → separate `.plain-block`.
 - Module-local `（1）（2）（3）（4）` subtitles → child white modules inside the same card, never new chapters.
 - Explanatory children under a bracket parent such as `【主图】` → `.sublevel` items with grey squares, no pink marker, and the same group/text indentation as `.source-list` children.
+- Keep a bracket parent and its `.sublevel` children as consecutive direct `<li>` siblings in one `.red-list`. Never create a nested `.red-list`; it compounds indentation and removes the parent-to-first-child spacing.
 - Consecutive numbered siblings (`1、` / `2、` / `3、`) → one shared parent module, identical weight and grey-square hierarchy even when only one item contains a colon.
 
 Wrap a label, its grey caption, and its images in the same `.text-block`. Indent the caption and images as children of that label.
@@ -59,7 +60,7 @@ Use the PDF to restore merged cells and true relationships lost in DOCX export:
 
 - preserve headers and row/column correspondence;
 - use `rowspan`/`colspan` where PDF cells are merged;
-- keep pure comparison/enumeration cells horizontally and vertically centered;
+- keep table body copy vertically centered and horizontally justified with the final line aligned left; keep top headers centered;
 - keep lists inside a cell grouped and vertically centered;
 - enlarge example images to match PDF proportions rather than retaining tiny export defaults;
 - never flatten a semantic table into unrelated cards or a free image grid.
