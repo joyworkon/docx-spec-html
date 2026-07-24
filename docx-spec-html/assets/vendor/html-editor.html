@@ -145,6 +145,12 @@ Error generating stack: `+o.message+`
   padding: 60px 20px !important;
   font-family: -apple-system, sans-serif !important;
 }
+
+/* 编辑态下所有被标记元素都可点击：模板常给图标/装饰层设 pointer-events:none，
+   会导致 SVG 等元素点不中；编辑时强制恢复可点击（本样式表导出时会被剔除） */
+[data-ed-id] {
+  pointer-events: auto !important;
+}
 `,Bf=String.raw`
 (function () {
   'use strict';
@@ -159,6 +165,14 @@ Error generating stack: `+o.message+`
   var editingId = null;
   var toolbar = null;
   var gridVisible = false; // 标尺网格是否显示（G7）
+  var clipboard = []; // 复制剪贴板：清理后的 outerHTML 数组（支持多选一次复制多个）
+  var zoomLevel = 1; // 画布缩放比例（通过注入 style 实现，导出时自动剔除）
+  // 高频样式修改的性能优化（拖动取色器等）：历史快照合并 + CHANGED 通知防抖 + 回显节流
+  var coalesceKey = null;
+  var coalesceTime = 0;
+  var changedTimer = null;
+  var selectEchoTimer = null;
+  var selectEchoEl = null;
 
   // ============ 历史栈 ============
   var past = [];
@@ -186,6 +200,7 @@ Error generating stack: `+o.message+`
 
   /** 在做修改前调用：把当前状态存入 past */
   function beforeChange(label) {
+    coalesceKey = null; // 任何其它编辑都会打断"连续取色"的快照合并
     var html = snapshot();
     if (past.length === 0 || past[past.length - 1] !== html) {
       past.push(html);
@@ -240,8 +255,16 @@ Error generating stack: `+o.message+`
 
   function restore(html) {
     deselectAll();
-    if (document.body) document.body.innerHTML = html;
+    if (document.body) {
+      document.body.innerHTML = html;
+      // 快照里可能带着注入节点（悬浮工具条/网格层）的副本，恢复后清掉这些"死"节点，
+      // 避免与 ensureToolbar 重建的工具条叠加重复
+      var injected = document.body.querySelectorAll('[data-ed-injected]');
+      for (var i = 0; i < injected.length; i++) injected[i].remove();
+    }
+    toolbar = null;
     remarkAll();
+    if (gridVisible) showGrid();
     notifyHistory();
     notifyChanged();
   }
@@ -259,6 +282,39 @@ Error generating stack: `+o.message+`
 
   function notifyChanged() {
     HOST.postMessage({ source: 'ed-editor', type: 'CHANGED' }, '*');
+  }
+
+  /** 高频修改（拖动取色）合并历史快照：同一 key 600ms 内只在首次存快照，
+   *  避免每个 mousemove tick 都序列化整个 body.innerHTML */
+  function beforeChangeCoalesced(key, label) {
+    var now = Date.now();
+    if (key !== coalesceKey || now - coalesceTime > 600) {
+      beforeChange(label);
+      coalesceKey = key;
+      coalesceTime = now;
+    }
+  }
+
+  /** CHANGED 通知防抖：父窗口收到 CHANGED 会全量导出 HTML 写入 localStorage（大页面很昂贵），
+   *  拖动取色时改为停止 300ms 后只通知一次 */
+  function notifyChangedDebounced() {
+    if (changedTimer) clearTimeout(changedTimer);
+    changedTimer = setTimeout(function () {
+      changedTimer = null;
+      notifyChanged();
+    }, 300);
+  }
+
+  /** 选中信息回显节流：拖动取色时不必每个 tick 都 getComputedStyle + 跨窗口 postMessage + 父窗口重渲染 */
+  function notifySelectEcho(el) {
+    selectEchoEl = el;
+    if (selectEchoTimer) return;
+    selectEchoTimer = setTimeout(function () {
+      selectEchoTimer = null;
+      var target = selectEchoEl;
+      selectEchoEl = null;
+      if (target && target.isConnected) notifySelect(buildInfo(target));
+    }, 120);
   }
 
   // ============ 元素标记 ============
@@ -295,12 +351,24 @@ Error generating stack: `+o.message+`
     return true;
   }
 
+  /** 命中的元素若在 SVG 内部（path/circle/rect/use 等），归一到最近的 <svg> 根。
+   *  让图标作为整体被选中/复制/移动；子路径仍可从层级树精确选中 */
+  function rootSvg(el) {
+    var cur = el;
+    while (cur && cur.nodeType === 1 && cur !== document.body) {
+      if (cur.tagName && String(cur.tagName).toLowerCase() === 'svg') return cur;
+      cur = cur.parentElement;
+    }
+    return null;
+  }
+
   function selectElement(el) {
     deselectAll();
     if (!el) {
       selectedId = null;
       hideToolbar();
       notifySelect(null);
+      notifySelectMulti(); // 同步多选数量（0），让父窗口隐藏"已选 N 个"悬浮条
       return;
     }
     if (!isEditableTarget(el)) return;
@@ -310,6 +378,7 @@ Error generating stack: `+o.message+`
     el.classList.add('ed-selected');
     showToolbar(el);
     notifySelect(buildInfo(el));
+    notifySelectMulti(); // 同步多选数量（1），退出多选状态
     notifyLayerTree();
   }
 
@@ -481,6 +550,10 @@ Error generating stack: `+o.message+`
     e.preventDefault();
     e.stopPropagation();
 
+    // 点击落在 SVG 内部（path/circle 等）→ 归一到 <svg> 根，图标作为整体选中
+    var svgRoot = rootSvg(el);
+    if (svgRoot) el = svgRoot;
+
     // 点击画布空白（body / html 本身，或最外层包裹容器）→ 清除所有选中
     // 判定：body/html 本身，或 body 的直接子元素中只用作布局包裹的（.wrap 等）
     if (el === document.body || el === document.documentElement || el.tagName === 'HTML') {
@@ -491,8 +564,9 @@ Error generating stack: `+o.message+`
       return;
     }
     // 多选状态下，点击空白区域（body 直接子容器，且该容器没有可见文本内容）
-    // 视为"点空白"，清除选中而不是选中这个大容器
-    if (selectedIds.length > 1 && el.parentElement === document.body) {
+    // 视为"点空白"，清除选中而不是选中这个大容器（SVG 无文本，需排除）
+    if (selectedIds.length > 1 && el.parentElement === document.body &&
+        String(el.tagName).toLowerCase() !== 'svg') {
       var txt = (el.innerText || '').replace(/\s+/g, '').trim();
       if (txt.length === 0) {
         deselectAll();
@@ -536,6 +610,12 @@ Error generating stack: `+o.message+`
     }
     e.preventDefault();
     e.stopPropagation();
+    // SVG：双击只选中 <svg> 根（作为整体），不进入文字编辑
+    var svgRoot = rootSvg(el);
+    if (svgRoot) {
+      selectElement(svgRoot);
+      return;
+    }
     selectElement(el);
     startEditing(el, e.clientX, e.clientY);
   }
@@ -545,6 +625,8 @@ Error generating stack: `+o.message+`
     if (!isEditableTarget(el)) return;
     e.preventDefault();
     e.stopPropagation();
+    var svgRoot = rootSvg(el);
+    if (svgRoot) el = svgRoot;
     selectElement(el);
     HOST.postMessage(
       { source: 'ed-editor', type: 'CONTEXT_MENU', payload: { x: e.clientX, y: e.clientY, id: selectedId } },
@@ -555,13 +637,18 @@ Error generating stack: `+o.message+`
   function handleMouseOver(e) {
     var el = e.target;
     if (!isEditableTarget(el)) return;
+    var svgRoot = rootSvg(el);
+    if (svgRoot) el = svgRoot;
     if (el.classList.contains('ed-selected')) return;
     el.classList.add('ed-hover');
   }
 
   function handleMouseOut(e) {
     var el = e.target;
-    if (el && el.classList) el.classList.remove('ed-hover');
+    if (el && el.classList) {
+      var svgRoot = rootSvg(el);
+      (svgRoot || el).classList.remove('ed-hover');
+    }
   }
 
   // ============ 文字编辑（contenteditable） ============
@@ -702,10 +789,14 @@ Error generating stack: `+o.message+`
       '<button class="ed-toolbar-btn" data-act="parent" title="选中父元素">▲</button>' +
       '<button class="ed-toolbar-btn" data-act="up" title="上移">⬆</button>' +
       '<button class="ed-toolbar-btn" data-act="down" title="下移">⬇</button>' +
-      '<button class="ed-toolbar-btn" data-act="duplicate" title="复制">⧉</button>' +
+      '<button class="ed-toolbar-btn" data-act="copy" title="复制到剪贴板（可选中其它模块后粘贴）">⧉</button>' +
+      '<button class="ed-toolbar-btn" data-act="paste" title="粘贴到选中位置">📋</button>' +
       '<button class="ed-toolbar-btn ed-danger" data-act="delete" title="删除">✕</button>';
     tb.addEventListener('click', onToolbarClick);
     document.body.appendChild(tb);
+    // 剪贴板为空时隐藏粘贴按钮（工具条重建后保持状态）
+    var pasteBtn = tb.querySelector('[data-act="paste"]');
+    if (pasteBtn) pasteBtn.style.display = clipboard.length ? '' : 'none';
     return tb;
   }
 
@@ -735,7 +826,7 @@ Error generating stack: `+o.message+`
     e.stopPropagation();
     var act = btn.getAttribute('data-act');
     var el = findById(selectedId);
-    if (!el && act !== 'parent') return;
+    if (!el && act !== 'parent' && act !== 'paste') return;
     switch (act) {
       case 'parent':
         if (el && el.parentElement && el.parentElement !== document.body) {
@@ -750,6 +841,12 @@ Error generating stack: `+o.message+`
         break;
       case 'duplicate':
         duplicateEl(el);
+        break;
+      case 'copy':
+        copySelection();
+        break;
+      case 'paste':
+        pasteClipboard();
         break;
       case 'delete':
         deleteEl(el);
@@ -792,6 +889,92 @@ Error generating stack: `+o.message+`
       selectElement(clone);
     }
     notifyChanged();
+  }
+
+  // ============ 剪贴板复制 / 粘贴 ============
+  /** 克隆并清理编辑标记，返回可入库的 outerHTML */
+  function cleanCloneForClipboard(el) {
+    var clone = el.cloneNode(true);
+    clone.removeAttribute(ID_ATTR);
+    clone.classList.remove('ed-selected', 'ed-hover', 'ed-editing');
+    if (clone.getAttribute('contenteditable') === 'true') clone.removeAttribute('contenteditable');
+    var desc = clone.querySelectorAll('[' + ID_ATTR + ']');
+    for (var i = 0; i < desc.length; i++) {
+      desc[i].removeAttribute(ID_ATTR);
+      desc[i].classList.remove('ed-selected', 'ed-hover', 'ed-editing');
+      if (desc[i].getAttribute('contenteditable') === 'true') desc[i].removeAttribute('contenteditable');
+      if (desc[i].getAttribute('class') === '') desc[i].removeAttribute('class');
+    }
+    if (clone.getAttribute('class') === '') clone.removeAttribute('class');
+    return clone.outerHTML;
+  }
+
+  /** 复制选中元素（支持多选）到内部剪贴板，不改动文档 */
+  function copySelection() {
+    var ids = selectedIds.length > 0 ? selectedIds.slice() : (selectedId ? [selectedId] : []);
+    if (ids.length === 0) return;
+    var htmls = [];
+    for (var i = 0; i < ids.length; i++) {
+      var el = findById(ids[i]);
+      if (el) htmls.push(cleanCloneForClipboard(el));
+    }
+    if (htmls.length === 0) return;
+    clipboard = htmls;
+    // 剪贴板有内容后显示粘贴按钮
+    if (toolbar) {
+      var pasteBtn = toolbar.querySelector('[data-act="paste"]');
+      if (pasteBtn) pasteBtn.style.display = '';
+    }
+    HOST.postMessage({ source: 'ed-editor', type: 'COPIED', payload: { count: htmls.length } }, '*');
+  }
+
+  /** 粘贴时宽度自适应：根元素限宽 100%，内部图片等比缩放不溢出模块 */
+  function adaptPasted(root) {
+    if (!root || root.nodeType !== 1) return;
+    root.style.maxWidth = '100%';
+    if (root.tagName === 'IMG') {
+      root.style.height = 'auto';
+    }
+    var imgs = root.querySelectorAll ? root.querySelectorAll('img') : [];
+    for (var i = 0; i < imgs.length; i++) {
+      imgs[i].style.maxWidth = '100%';
+      imgs[i].style.height = 'auto';
+    }
+  }
+
+  /** 把剪贴板内容粘贴到当前选中位置：
+   *  选中容器 → 追加到其内部末尾；选中非容器 → 插到其后方；无选中 → body 末尾 */
+  function pasteClipboard() {
+    if (clipboard.length === 0) return;
+    var ref = selectedId ? findById(selectedId) : null;
+    beforeChange('粘贴');
+    var tpl = document.createElement('div');
+    var frag = document.createDocumentFragment();
+    var firstNode = null;
+    for (var i = 0; i < clipboard.length; i++) {
+      tpl.innerHTML = clipboard[i];
+      while (tpl.firstChild) {
+        var node = tpl.firstChild;
+        if (node.nodeType === 1) {
+          assignId(node);
+          var desc = node.querySelectorAll ? node.querySelectorAll('*') : [];
+          for (var d = 0; d < desc.length; d++) assignId(desc[d]);
+          adaptPasted(node);
+          if (!firstNode) firstNode = node;
+        }
+        frag.appendChild(node);
+      }
+    }
+    if (ref && isContainer(ref)) {
+      ref.appendChild(frag);
+    } else if (ref && ref.parentNode) {
+      ref.parentNode.insertBefore(frag, ref.nextSibling);
+    } else {
+      document.body.appendChild(frag);
+    }
+    if (firstNode) selectElement(firstNode);
+    notifyChanged();
+    notifyLayerTree();
   }
 
   function moveEl(el, dir) {
@@ -900,6 +1083,7 @@ Error generating stack: `+o.message+`
     selectedId = null;
     selectedIds = [];
     notifySelect(null);
+    notifySelectMulti(); // 批量删除后隐藏"已选 N 个"悬浮条
     notifyChanged();
     notifyLayerTree();
   }
@@ -923,6 +1107,7 @@ Error generating stack: `+o.message+`
       if (n) { n.classList.add('ed-selected'); selectedIds.push(newIds[k]); }
     }
     if (newIds.length) { selectedId = newIds[newIds.length - 1]; var main = findById(selectedId); if (main) { showToolbar(main); notifySelect(buildInfo(main)); } }
+    notifySelectMulti(); // 同步批量复制后的多选数量
     notifyChanged();
     notifyLayerTree();
   }
@@ -974,9 +1159,29 @@ Error generating stack: `+o.message+`
       e.preventDefault();
       if (selectedIds.length > 1) multiDelete(); else deleteEl(findById(selectedId));
     } else if (mod && key === 'd' && selectedIds.length > 0) {
-      // Ctrl/Cmd+D 复制（多选时批量复制）
+      // Ctrl/Cmd+D 立即克隆一份到下方（多选时批量克隆）
       e.preventDefault();
       if (selectedIds.length > 1) multiDuplicate(); else duplicateEl(findById(selectedId));
+    } else if (mod && key === 'c' && selectedIds.length > 0) {
+      // Ctrl/Cmd+C 复制到内部剪贴板（不动文档）
+      e.preventDefault();
+      copySelection();
+    } else if (mod && key === 'v' && clipboard.length > 0) {
+      // Ctrl/Cmd+V 粘贴到选中模块/位置
+      e.preventDefault();
+      pasteClipboard();
+    } else if (mod && (key === '=' || key === '+')) {
+      // Ctrl/Cmd + '+' 放大画布
+      e.preventDefault();
+      setZoom(zoomLevel + 0.1);
+    } else if (mod && key === '-') {
+      // Ctrl/Cmd + '-' 缩小画布
+      e.preventDefault();
+      setZoom(zoomLevel - 0.1);
+    } else if (mod && key === '0') {
+      // Ctrl/Cmd + 0 重置缩放
+      e.preventDefault();
+      setZoom(1);
     } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') && selectedId) {
       // G12 方向键微移（iframe 内处理，因为 iframe 的按键不冒泡到父窗口）
       // Shift=大步10px，普通=1px；Alt+上/下=调整同级顺序
@@ -993,6 +1198,7 @@ Error generating stack: `+o.message+`
       deselectAll();
       hideToolbar();
       notifySelect(null);
+      notifySelectMulti(); // 退出多选状态，隐藏父窗口悬浮条
     }
   }, true);
 
@@ -1041,10 +1247,10 @@ Error generating stack: `+o.message+`
   function setTextColor(id, color) {
     var el = findById(id);
     if (!el) return;
-    beforeChange();
+    beforeChangeCoalesced('text-color:' + id, '文字颜色');
     el.style.color = color;
-    notifyChanged();
-    notifySelect(buildInfo(el));
+    notifyChangedDebounced();
+    notifySelectEcho(el);
   }
 
   /** 模块颜色 = 文字所在块级容器的背景色（与元素自身背景色区别） */
@@ -1052,20 +1258,20 @@ Error generating stack: `+o.message+`
     var el = findById(id);
     if (!el) return;
     var mod = findModuleContainer(el) || el;
-    beforeChange();
+    beforeChangeCoalesced('module-color:' + id, '模块颜色');
     mod.style.backgroundColor = color;
-    notifyChanged();
-    notifySelect(buildInfo(el));
+    notifyChangedDebounced();
+    notifySelectEcho(el);
   }
 
   /** 选中元素自身的背景颜色 */
   function setBgColor(id, color) {
     var el = findById(id);
     if (!el) return;
-    beforeChange();
+    beforeChangeCoalesced('bg-color:' + id, '背景颜色');
     el.style.backgroundColor = color;
-    notifyChanged();
-    notifySelect(buildInfo(el));
+    notifyChangedDebounced();
+    notifySelectEcho(el);
   }
 
   // ============ G1/G2/G3 文字排版样式（对齐/加粗/斜体/下划线/行高/字间距）============
@@ -1084,7 +1290,14 @@ Error generating stack: `+o.message+`
   }
 
   function setTextAlign(align) {
-    applyStyleToTargets(function (el) { el.style.textAlign = align; }, '对齐');
+    applyStyleToTargets(function (el) { applyTextAlign(el, align); }, '对齐');
+  }
+  /** 写对齐：同时写 text-align-last。
+   *  【修复】被编辑的模板样式表里常带 text-align-last:center（甚至 !important），
+   *  只设 text-align 时左/右对齐后"最后一行仍居中"；内联 !important 可压过样式表。 */
+  function applyTextAlign(el, align) {
+    el.style.textAlign = align;
+    el.style.setProperty('text-align-last', align, 'important');
   }
   /** 切换加粗（bold<->normal） */
   function toggleBold() {
@@ -1173,6 +1386,22 @@ Error generating stack: `+o.message+`
     notifyChanged();
     var main = findById(selectedId);
     if (main) notifySelect(buildInfo(main));
+  }
+
+  // ============ 容器内元素批量对齐 ============
+  /** 选中容器后，一键把容器自身及内部所有元素设为 左/中/右 对齐 */
+  function alignChildren(mode) {
+    var root = findById(selectedId);
+    if (!root) return;
+    beforeChange('容器对齐');
+    applyTextAlign(root, mode);
+    var all = root.querySelectorAll('*');
+    for (var i = 0; i < all.length; i++) {
+      if (!isEditableTarget(all[i])) continue;
+      applyTextAlign(all[i], mode);
+    }
+    notifyChanged();
+    notifySelect(buildInfo(root));
   }
 
   // ============ G10 批量替换文字 ============
@@ -1296,6 +1525,26 @@ Error generating stack: `+o.message+`
     if (gridVisible) showGrid();
   }
 
+  // ============ 画布缩放 ============
+  /** 通过注入 style 缩放 iframe 内 body。
+   *  用 data-ed-injected 标记：导出 HTML / PNG 时自动剔除，不污染结果；
+   *  选中框与悬浮工具条定位（getBoundingClientRect + scroll）处于同一坐标系，无需额外处理。 */
+  function setZoom(z) {
+    z = Math.round(z * 100) / 100;
+    if (z < 0.25) z = 0.25;
+    if (z > 3) z = 3;
+    zoomLevel = z;
+    var st = document.getElementById('ed-zoom-style');
+    if (!st) {
+      st = document.createElement('style');
+      st.id = 'ed-zoom-style';
+      st.setAttribute('data-ed-injected', '1');
+      (document.head || document.documentElement).appendChild(st);
+    }
+    st.textContent = 'body{zoom:' + z + ';}';
+    HOST.postMessage({ source: 'ed-editor', type: 'ZOOM', payload: { level: z } }, '*');
+  }
+
   // ============ 接收父窗口消息 ============
   window.addEventListener('message', function (e) {
     var msg = e.data;
@@ -1340,6 +1589,9 @@ Error generating stack: `+o.message+`
       case 'ALIGN_ELEMENTS':
         alignElements(msg.payload.mode);
         break;
+      case 'ALIGN_CHILDREN':
+        alignChildren(msg.payload.mode);
+        break;
       case 'NUDGE':
         nudgeElement(msg.payload.dir, msg.payload.step);
         break;
@@ -1372,6 +1624,31 @@ Error generating stack: `+o.message+`
         break;
       case 'MULTI_DELETE':
         multiDelete();
+        break;
+      case 'DESELECT':
+        // 父窗口转发来的 Esc / 取消选中请求
+        deselectAll();
+        hideToolbar();
+        notifySelect(null);
+        notifySelectMulti();
+        break;
+      case 'COPY':
+        copySelection();
+        break;
+      case 'PASTE':
+        pasteClipboard();
+        break;
+      case 'ZOOM_IN':
+        setZoom(zoomLevel + 0.1);
+        break;
+      case 'ZOOM_OUT':
+        setZoom(zoomLevel - 0.1);
+        break;
+      case 'ZOOM_RESET':
+        setZoom(1);
+        break;
+      case 'SET_ZOOM':
+        setZoom(msg.payload.level);
         break;
       case 'MULTI_DUPLICATE':
         multiDuplicate();
@@ -1415,6 +1692,12 @@ Error generating stack: `+o.message+`
     }
     remarkAll();
     document.addEventListener('click', handleClick, true);
+    // 左键点击画布时通知父窗口（用于关闭右键菜单——iframe 内的点击不会冒泡到父窗口）
+    document.addEventListener('mousedown', function (e) {
+      if (e.button === 0) {
+        HOST.postMessage({ source: 'ed-editor', type: 'CANVAS_CLICK' }, '*');
+      }
+    }, true);
     document.addEventListener('dblclick', handleDblClick, true);
     document.addEventListener('contextmenu', handleContext, true);
     document.addEventListener('mouseover', handleMouseOver, true);
@@ -1702,16 +1985,16 @@ ${Bf}
   </head>
   <body>
     <div id="root"></div>
+  
 
 
+  
 
 
+  
 
 
-
-
-
-
+  
 <script data-ed-extra="1">
 (function () {
   'use strict';
@@ -1765,6 +2048,17 @@ ${Bf}
     // 有弹窗时不处理
     if (document.querySelector('.ed-extra-mask') || document.querySelector('.dialog-mask')) return;
     var key = e.key;
+    if (key === 'Escape') {
+      // 焦点在父窗口时 iframe 收不到按键，转发 Esc 取消选中/多选（隐藏"已选 N 个"悬浮条）
+      postToIframe({ source: 'ed-host', type: 'DESELECT' });
+      return;
+    }
+    // Ctrl/Cmd + '+'/'-'/'0' 缩放画布（preventDefault 避免触发浏览器自身缩放）
+    if (e.ctrlKey || e.metaKey) {
+      if (key === '=' || key === '+') { e.preventDefault(); postToIframe({ source: 'ed-host', type: 'ZOOM_IN' }); return; }
+      if (key === '-') { e.preventDefault(); postToIframe({ source: 'ed-host', type: 'ZOOM_OUT' }); return; }
+      if (key === '0') { e.preventDefault(); postToIframe({ source: 'ed-host', type: 'ZOOM_RESET' }); return; }
+    }
     if (key !== 'ArrowUp' && key !== 'ArrowDown' && key !== 'ArrowLeft' && key !== 'ArrowRight') return;
     e.preventDefault();
     if (e.altKey) {
@@ -2040,6 +2334,7 @@ ${Bf}
   }
   function toggleLayerTree() {
     if (layerPanel && layerPanel.isConnected) { layerPanel.remove(); layerPanel = null; return; }
+    treeScrollOnce = true; // 面板刚打开：渲染后自动定位到当前选中元素
     layerPanel = document.createElement('aside');
     layerPanel.className = 'ed-layer-panel';
     layerPanel.style.cssText = 'position:fixed;left:0;top:52px;bottom:0;width:240px;background:var(--bg-panel);border-right:1px solid var(--border);z-index:50;display:flex;flex-direction:column;box-shadow:var(--shadow-md)';
@@ -2056,12 +2351,16 @@ ${Bf}
     renderLayerTree();
     postToIframe({ source: 'ed-host', type: 'GET_LAYER_TREE' });
   }
+  var lastTreeSelId = null;   // 上次自动定位到的选中行 id
+  var treeScrollOnce = false; // 面板刚打开时强制定位一次
   function renderLayerTree() {
     if (!layerPanel || !layerPanel.isConnected) return;
     var list = layerPanel.querySelector('.ed-layer-list');
     if (!list) return;
     list.innerHTML = '';
-    if (!layerTree.length) { list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);font-size:12px">请先上传 HTML</div>'; return; }
+    if (!layerTree.length) { list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-tertiary);font-size:12px">请先上传 HTML</div>'; lastTreeSelId = null; return; }
+    var selRow = null;
+    var selId = null;
     layerTree.forEach(function (node) {
       var row = document.createElement('div');
       var ind = node.depth * 14;
@@ -2071,8 +2370,15 @@ ${Bf}
       row.addEventListener('click', function (e) {
         postToIframe({ source: 'ed-host', type: 'TREE_SELECT', payload: { id: node.id, additive: e.shiftKey } });
       });
+      if (node.selected && !selRow) { selRow = row; selId = node.id; }
       list.appendChild(row);
     });
+    // 自动定位：面板刚打开，或画布中选中项发生变化时，滚动到选中行
+    if (selRow && (treeScrollOnce || selId !== lastTreeSelId)) {
+      selRow.scrollIntoView({ block: 'center' });
+    }
+    treeScrollOnce = false;
+    lastTreeSelId = selId;
   }
 
   // ============ G6 元素对齐辅助 + G14 多选提示（浮动面板）============
@@ -2102,7 +2408,7 @@ ${Bf}
     multiInfo = document.createElement('div');
     multiInfo.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#1d2129;color:#fff;padding:8px 16px;border-radius:20px;font-size:12px;z-index:40;display:none;box-shadow:var(--shadow-lg);align-items:center;gap:8px';
     multiInfo.innerHTML = '<span class="ed-mc">已选 1 个</span><button class="ed-md" style="background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:11px">复制</button><button class="ed-mx" style="background:#f53f3f;color:#fff;border:none;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:11px">删除</button>';
-    multiInfo.querySelector('.ed-md').addEventListener('click', function () { postToIframe({ source: 'ed-host', type: 'MULTI_DUPLICATE' }); });
+    multiInfo.querySelector('.ed-md').addEventListener('click', function () { postToIframe({ source: 'ed-host', type: 'COPY' }); });
     multiInfo.querySelector('.ed-mx').addEventListener('click', function () { postToIframe({ source: 'ed-host', type: 'MULTI_DELETE' }); });
     document.body.appendChild(multiInfo);
   }
@@ -2117,6 +2423,99 @@ ${Bf}
       // 多选时显示对齐面板
       if (alignPanel) alignPanel.style.display = n >= 2 ? 'flex' : 'none';
     }
+  });
+
+  // ============ 容器内元素批量对齐（选中容器时出现的浮动面板）============
+  var CONTAINER_TAGS = /^(SECTION|DIV|ARTICLE|ASIDE|HEADER|FOOTER|NAV|MAIN|LI|TD|TH|FIGURE|BLOCKQUOTE|UL|OL)$/;
+  var cAlignPanel = null;
+  function ensureContainerAlignPanel() {
+    if (cAlignPanel && cAlignPanel.isConnected) return;
+    cAlignPanel = document.createElement('div');
+    cAlignPanel.className = 'ed-calign-panel';
+    cAlignPanel.style.cssText = 'position:fixed;top:62px;right:300px;z-index:40;background:var(--bg-panel);border:1px solid var(--border);border-radius:8px;padding:8px;box-shadow:var(--shadow-md);display:none;gap:4px;align-items:center';
+    cAlignPanel.innerHTML = '<span style="font-size:11px;color:var(--text-tertiary);margin-right:4px">容器内对齐</span>';
+    var btns = [['left', '⬅ 左对齐'], ['center', '⬌ 居中'], ['right', '➡ 右对齐']];
+    btns.forEach(function (b) {
+      var btn = document.createElement('button');
+      btn.className = 'btn btn-ghost'; btn.style.fontSize = '11px'; btn.style.padding = '3px 8px';
+      btn.textContent = b[1]; btn.title = '将选中容器内的所有元素' + b[1].replace(/^.\s/, '');
+      btn.addEventListener('click', function () { postToIframe({ source: 'ed-host', type: 'ALIGN_CHILDREN', payload: { mode: b[0] } }); });
+      cAlignPanel.appendChild(btn);
+    });
+    document.body.appendChild(cAlignPanel);
+  }
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (!d || d.source !== 'ed-editor') return;
+    if (d.type === 'SELECT') {
+      if (!cAlignPanel) ensureContainerAlignPanel();
+      // 仅在单选一个容器元素时显示；多选时让位给多选对齐面板
+      var show = !!(d.payload && d.payload.tag && CONTAINER_TAGS.test(d.payload.tag) && !(d.payload.multiCount > 1));
+      cAlignPanel.style.display = show ? 'flex' : 'none';
+    } else if (d.type === 'MULTI_SELECT' && d.payload.count > 1 && cAlignPanel) {
+      cAlignPanel.style.display = 'none';
+    }
+  });
+
+  // ============ 复制成功轻提示（toast）============
+  var copyToast = null;
+  var copyToastTimer = null;
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (!d || d.source !== 'ed-editor' || d.type !== 'COPIED') return;
+    if (!copyToast || !copyToast.isConnected) {
+      copyToast = document.createElement('div');
+      copyToast.style.cssText = 'position:fixed;bottom:64px;left:50%;transform:translateX(-50%);background:#1d2129;color:#fff;padding:8px 16px;border-radius:20px;font-size:12px;z-index:60;box-shadow:var(--shadow-lg);pointer-events:none';
+      document.body.appendChild(copyToast);
+    }
+    copyToast.textContent = '已复制 ' + d.payload.count + ' 个元素，选中目标模块后 Ctrl/Cmd+V 粘贴';
+    copyToast.style.display = 'block';
+    if (copyToastTimer) clearTimeout(copyToastTimer);
+    copyToastTimer = setTimeout(function () { if (copyToast) copyToast.style.display = 'none'; }, 1800);
+  });
+
+  // ============ 画布内左键点击 → 关闭右键菜单 ============
+  // 菜单（React）靠父文档的 mousedown 监听实现"点外部关闭"，但 iframe 内的点击
+  // 冒泡不到父文档。这里收到画布的左键通知后，代为派发一个 mousedown 触发其关闭。
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (!d || d.source !== 'ed-editor' || d.type !== 'CANVAS_CLICK') return;
+    if (!document.querySelector('.ctx-menu')) return;
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+  });
+
+  // ============ 画布缩放控件 ============
+  var zoomLevelUi = 1;
+  var zoomLabel = null;
+  function renderZoom() {
+    if (zoomLabel) zoomLabel.textContent = Math.round(zoomLevelUi * 100) + '%';
+  }
+  function ensureZoomCtrl() {
+    var right = ensureToolbarRight(); if (!right) return;
+    if (document.getElementById('ed-zoom-out')) return;
+    function mk(id, text, title, fn) {
+      var b = document.createElement('button');
+      b.id = id; b.type = 'button'; b.className = 'btn'; b.textContent = text; b.title = title;
+      b.style.padding = '6px 8px';
+      b.addEventListener('click', fn);
+      return b;
+    }
+    var out = mk('ed-zoom-out', '🔍−', '缩小画布（Ctrl/Cmd + -）', function () { postToIframe({ source: 'ed-host', type: 'ZOOM_OUT' }); });
+    zoomLabel = mk('ed-zoom-label', '100%', '重置为 100%（Ctrl/Cmd + 0）', function () { postToIframe({ source: 'ed-host', type: 'ZOOM_RESET' }); });
+    zoomLabel.style.minWidth = '52px';
+    zoomLabel.style.justifyContent = 'center';
+    var inp = mk('ed-zoom-in', '🔍＋', '放大画布（Ctrl/Cmd + +）', function () { postToIframe({ source: 'ed-host', type: 'ZOOM_IN' }); });
+    right.insertBefore(inp, right.firstChild);
+    right.insertBefore(zoomLabel, right.firstChild);
+    right.insertBefore(out, right.firstChild);
+    renderZoom();
+  }
+  // 缩放值同步：iframe 内快捷键/外部按钮都会回发 ZOOM；加载新文档（READY）重置为 100%
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (!d || d.source !== 'ed-editor') return;
+    if (d.type === 'ZOOM') { zoomLevelUi = d.payload.level; renderZoom(); }
+    else if (d.type === 'READY') { zoomLevelUi = 1; renderZoom(); }
   });
 
   // ============ 监听 BATCH_RESULT ============
@@ -2140,6 +2539,8 @@ ${Bf}
     ensureLayerBtn();
     ensureAlignPanel();
     ensureMultiInfo();
+    ensureContainerAlignPanel();
+    ensureZoomCtrl();
   }
   // 持续保证按钮存在（工具栏是 React 动态渲染的）
   var looping = false;

@@ -25,13 +25,15 @@ Use `.attr-table` for paired directions. Default every header to the same brand 
 
 ### Standard tables
 
-- Use `.spec-table` for `主图 | 内容要求 | 示例`, with approximately `1fr 2fr 3fr` tracks; keep body copy justified/last-line-left and top headers centered.
+- Use `.spec-table` for `主图 | 内容要求 | 示例`, with approximately `1fr 2fr 3fr` tracks; center body copy and top headers horizontally and vertically.
 - Use `.word-table-spec` for other three-column semantic tables. Share one column track across all rows.
 - Use `.ba-compare` for two-column 优化前/优化后 material; grey header before, red header after.
 - Merge repeated adjacent headers with `colspan` when the PDF shows one shared heading.
 - Use `.tag-example-table` when a tag example must appear larger than the draft default.
 - A tag example is always `.doc-table.tag-example-table` inside `.doc-table-wrap`; its first row contains non-empty `<th>` cells and every image body cell uses `.table-media-cell > .image-holder > img`. The variant class never replaces the required `.doc-table` base class.
-- All semantic tables share one visual tier: separate rounded cells, 8px gaps, 10px corners, justified 24px body copy with the final line aligned left, uniform light-grey `#f7f7f7` body cells, centred red 24px/700 top headers, and 12px equal inset around every image.
+- All semantic tables share one visual tier: separate rounded cells, 8px gaps, 10px corners, centred 24px body copy, uniform light-grey `#f7f7f7` body cells, centred red 24px/700 top headers, and 12px equal inset around every image.
+- Use `.text-block.subtitle-table-group` when a local subtitle owns consecutive `child label → table` pairs. Each `.nested-table-group` stays inside that white container and uses `.caption-line` for its grey-square child heading.
+- Use `.tag-example-table` for equal-column image showcases such as `展现样式` and `前台展示案例`; give every image in the showcase row one shared rendered height while keeping width automatic and source proportions intact.
 - Apply the media inset to `.cm-img`, `.mt-eg`, `.ba-col .image-holder`, attribute images, generic Word-table images, and specification-table images. Never use `padding: 0` to make table media touch a card edge.
 - Add `.row-head` to a non-empty first-column body cell when its compact text is shorter than 10 characters; this makes short labels such as `首图`、`第二张`、`白底图` bold. Do not infer row-header weight for longer first-column prose.
 - Independent prose always uses `.text-block.plain-block > p`; `.text-block` alone is only a white wrapper and does not carry the canonical 28px prose contract.
@@ -49,7 +51,7 @@ Never preserve aspect ratio through `object-fit: contain` plus a fixed box for e
 
 ## 3. Metrics and labels
 
-- Use `.metric-emphasis` for `XX率 +X%`: white background, green border/value, enlarged percentage, and inline green up-arrow SVG.
+- Use `.metric-emphasis` for every standalone metric line shaped like `[效果数据/样本/日期标签：] XX率 +X%/％/PP`: white background, green border/value, enlarged number+unit, and inline green up-arrow SVG. Keep the optional source label (for example `10SKU（0522-0531）：`) inside the same component; do not leave it as an ordinary paragraph.
 - Keep a metric inside the relevant white module but below its label; let it fill available width.
 - For a colon label, highlight only `.label-text`; render `.label-rest` on the next aligned line without a red square or highlight.
 - For a colon-less label, use `.label-plain`: red square, no pink highlight.

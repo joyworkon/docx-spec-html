@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import re
 from pathlib import Path
 
-from batch_generate import SKILL_RELEASE
+from batch_generate import DEFAULT_EDITOR, SKILL_RELEASE
 from dom_contracts import evaluate_dom_contracts
 from validate_output import count_class, strip_tags, validate
 
@@ -94,13 +95,13 @@ def body_care_checks(html: str, report: dict) -> dict[str, bool]:
                 r"\.poster\.auto-doc\s+\.video-case-media\s+\.image-holder\s*\{[^}]*padding:\s*var\(--table-media-padding\)",
             )
         ),
-        "table_body_copy_is_justified": all(
+        "table_body_copy_is_centered": all(
             bool(re.search(pattern, html, flags=re.S))
             for pattern in (
-                r"\.poster\.auto-doc\s+\.doc-table\s+td\s*\{[^}]*text-align:\s*justify;[^}]*text-align-last:\s*left",
-                r"\.poster\.auto-doc\s+\.compare-matrix\s+td,[^{}]*\{[^}]*text-align:\s*justify;[^}]*text-align-last:\s*left",
-                r"\.poster\.auto-doc\s+\.ba-text\s*\{[^}]*text-align:\s*justify;[^}]*text-align-last:\s*left",
-                r"\.poster\.auto-doc\s+\.spec-cell\s*\{[^}]*text-align:\s*justify;[^}]*text-align-last:\s*left",
+                r"\.poster\.auto-doc\s+\.doc-table\s+td\s*\{[^}]*text-align:\s*center;[^}]*text-align-last:\s*center",
+                r"\.poster\.auto-doc\s+\.compare-matrix\s+td,[^{}]*\{[^}]*text-align:\s*center;[^}]*text-align-last:\s*center",
+                r"\.poster\.auto-doc\s+\.ba-text\s*\{[^}]*text-align:\s*center;[^}]*text-align-last:\s*center",
+                r"\.poster\.auto-doc\s+\.spec-cell\s*\{[^}]*text-align:\s*center;[^}]*text-align-last:\s*center",
             )
         ),
     }
@@ -113,6 +114,17 @@ def review(docx: Path, html_path: Path, profile: str | None = "auto") -> dict:
     dom_profile = None if requested_profile == "generic" else requested_profile
     dom_checks, body_care_profile = evaluate_dom_contracts(html, dom_profile)
     effective_profile = "body-care" if body_care_profile else None
+    editor_match = re.search(
+        r'<script\b[^>]*\bid="editor-src-b64"[^>]*>([^<]+)</script>',
+        html,
+        flags=re.I | re.S,
+    )
+    try:
+        embedded_editor_matches_vendor = bool(editor_match) and DEFAULT_EDITOR.exists() and (
+            base64.b64decode(editor_match.group(1).strip()) == DEFAULT_EDITOR.read_bytes()
+        )
+    except (ValueError, TypeError):
+        embedded_editor_matches_vendor = False
     generic_checks = {
         "strict_source_validation": bool(source_report.get("passed")),
         "release_marker_present": bool(
@@ -133,6 +145,7 @@ def review(docx: Path, html_path: Path, profile: str | None = "auto") -> dict:
                 "--table-cell-radius: 10px",
                 "--table-cell-gap: 8px",
                 "--table-media-padding: 12px",
+                "--tag-example-media-height: 480px",
                 "--nested-group-indent: 42px",
                 "--nested-text-offset: 25px",
                 "--video-header-height: 72px",
@@ -144,6 +157,19 @@ def review(docx: Path, html_path: Path, profile: str | None = "auto") -> dict:
         "fixed_review_controls": "data-html2canvas-ignore" in html
         and "id=\"edit-page-btn\"" in html
         and "id=\"dl-page-btn\"" in html,
+        "embedded_editor_matches_vendor": embedded_editor_matches_vendor,
+        "embedded_export_runtime": 'id="html2canvas-src-b64"' in html
+        and "var module=undefined,exports=undefined,define=undefined;" in html
+        and "new TextDecoder('utf-8').decode(bytes)" in html
+        and "if(!b||!ensureH2C())return;" in html,
+        "hero_title_export_color": bool(
+            re.search(
+                r"\.poster\.auto-doc\s+\.hero\s+h1\s*\{[^}]*color:\s*#fff;"
+                r"[^}]*-webkit-text-fill-color:\s*#fff;",
+                html,
+                flags=re.S,
+            )
+        ),
         "inline_svg_contract": "<svg" in html and "class=\"metric-arrow\"" in html,
     }
     profile_checks = body_care_checks(html, source_report) if effective_profile == "body-care" else {}
@@ -168,6 +194,8 @@ def review(docx: Path, html_path: Path, profile: str | None = "auto") -> dict:
             "synthetic_image_count": source_report.get("synthetic_image_count"),
             "expected_table_count": source_report.get("expected_table_count"),
             "actual_table_like_count": source_report.get("actual_table_like_count"),
+            "expected_metric_count": source_report.get("expected_metric_count"),
+            "actual_metric_count": source_report.get("actual_metric_count"),
         },
         "manual_visual_review_required": [
             "hero/overview/complex-table/image-heavy-region screenshots",

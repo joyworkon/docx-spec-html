@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import html
 import json
 import mimetypes
@@ -29,7 +30,7 @@ DEFAULT_FONT = SKILL_ROOT / "assets" / "fonts" / "JINGDONGLangZhengTi1-Bold.woff
 DEFAULT_H2C = SKILL_ROOT / "assets" / "vendor" / "html2canvas.min.js"
 DEFAULT_EDITOR = SKILL_ROOT / "assets" / "vendor" / "html-editor.html"
 GENERATOR_CSS_MARKER = "/* ===== Generic DOCX generator additions ===== */"
-SKILL_RELEASE = "2026.07.10-r4"
+SKILL_RELEASE = "2026.07.21-r13"
 
 
 @dataclass
@@ -294,19 +295,41 @@ def image_frame(label: str, target: str, blobs: dict[str, bytes]) -> str:
 
 
 def render_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes], extra_class: str = "") -> str:
+    """Render a Word table without flattening merged-cell geometry.
+
+    python-docx exposes every grid slot covered by a horizontal or vertical merge
+    as a Cell wrapper around the same underlying ``w:tc`` node.  Rendering every
+    wrapper duplicates both text and images.  Keep one semantic cell and express
+    its grid coverage with HTML colspan/rowspan instead.
+    """
+    grid = [list(row.cells) for row in table.rows]
     rows_html: list[str] = []
-    for row_idx, row in enumerate(table.rows):
+    emitted_cells: set[int] = set()
+    for row_idx, cells in enumerate(grid):
         cells_html: list[str] = []
         tag = "th" if row_idx == 0 else "td"
-        header_texts = [clean_text(cell.text) for cell in row.cells]
-        repeated_header = (
-            row_idx == 0
-            and len(row.cells) > 1
-            and bool(header_texts[0])
-            and len(set(header_texts)) == 1
-        )
-        cells = row.cells[:1] if repeated_header else row.cells
-        for cell_index, cell in enumerate(cells):
+        cell_index = 0
+        while cell_index < len(cells):
+            cell = cells[cell_index]
+            cell_key = id(cell._tc)
+            colspan_count = 1
+            while (
+                cell_index + colspan_count < len(cells)
+                and cells[cell_index + colspan_count]._tc is cell._tc
+            ):
+                colspan_count += 1
+            if cell_key in emitted_cells:
+                cell_index += colspan_count
+                continue
+            emitted_cells.add(cell_key)
+
+            rowspan_count = 1
+            while row_idx + rowspan_count < len(grid):
+                below = grid[row_idx + rowspan_count]
+                if cell_index >= len(below) or below[cell_index]._tc is not cell._tc:
+                    break
+                rowspan_count += 1
+
             texts = [clean_text(p.text) for p in cell.paragraphs if clean_text(p.text)]
             image_html = []
             for paragraph in cell.paragraphs:
@@ -314,7 +337,8 @@ def render_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes], ext
                     if target in blobs:
                         image_html.append(f'<div class="image-holder">{image_tag(target, blobs, texts[0] if texts else "表格图片")}</div>')
             text_html = "<br>".join(esc(text) for text in texts)
-            colspan = f' colspan="{len(row.cells)}"' if repeated_header else ""
+            colspan = f' colspan="{colspan_count}"' if colspan_count > 1 else ""
+            rowspan = f' rowspan="{rowspan_count}"' if rowspan_count > 1 else ""
             row_head = (
                 row_idx > 0
                 and cell_index == 0
@@ -327,10 +351,17 @@ def render_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes], ext
             if image_html:
                 cell_classes.append("table-media-cell")
             class_attr = f' class="{" ".join(cell_classes)}"' if cell_classes else ""
-            cells_html.append(f"<{tag}{class_attr}{colspan}>{text_html}{''.join(image_html)}</{tag}>")
+            cells_html.append(f"<{tag}{class_attr}{colspan}{rowspan}>{text_html}{''.join(image_html)}</{tag}>")
+            cell_index += colspan_count
         rows_html.append("<tr>" + "".join(cells_html) + "</tr>")
     classes = "doc-table" + (f" {extra_class}" if extra_class else "")
-    return f'<div class="doc-table-wrap"><table class="{classes}">' + "".join(rows_html) + "</table></div>"
+    colgroup = ""
+    if "spec-table" in extra_class and grid and len(grid[0]) == 4:
+        colgroup = (
+            '<colgroup><col class="spec-c1"><col class="spec-c2">'
+            '<col class="spec-c3"><col class="spec-c4"></colgroup>'
+        )
+    return f'<div class="doc-table-wrap"><table class="{classes}">{colgroup}' + "".join(rows_html) + "</table></div>"
 
 
 def document_uses_heading_styles(blocks: list[ParagraphBlock | TableBlock]) -> bool:
@@ -345,11 +376,9 @@ def document_uses_heading_styles(blocks: list[ParagraphBlock | TableBlock]) -> b
 
 CHAPTER_LABEL_SUFFIXES = ("展示", "示例", "布局", "流程", "说明", "组合")
 
-# 商品信息运营规范的一级模块是固定且有限的这 8 个（顺序固定）。文档正文里
-# 模块标题写成 `1、主图规�`…`8、属性`，正文要点也用 `1、2、3、` 编号——脚本
-# 无法凭编号区分，故用白名单精确锚定：只有模块名命中白名单的 `N、xxx` 才是��节，
-# 其余 `N、xxx`（如 `1、视频画面需清晰…`）一律留作正文，不升级为章节。
-# 无编号短语（如 `卖点选词优先级`）也不得升级为第 9 个模块。
+# 身体护理规范使用这组固定模块名；其他行业规范可有不同数量和名称。
+# 对后者，脚本会把概述中的【模块名】与正文 `N、模块名` 交叉验证，避免把普通
+# 编号规则误升为章节。
 SPEC_MODULE_NAMES = (
     "主图规范", "主图视频", "长标题", "短标题",
     "通用卖点", "主推标签", "品质标签", "属性",
@@ -363,8 +392,50 @@ def spec_module_core(text: str) -> str:
     core = MODULE_NUM_PREFIX_RE.sub("", text.strip())
     core = TITLE_METRIC_RE.sub("", core).strip()
     return core.rstrip("：:").strip()
+
+
+def equivalent_module_name(left: str, right: str) -> bool:
+    """Match overview labels to numbered chapter names without broad fuzziness."""
+    aliases = {"卖点": "通用卖点", "主图规范": "主图"}
+    a = aliases.get(clean_text(left), clean_text(left))
+    b = aliases.get(clean_text(right), clean_text(right))
+    return a == b
+
+
+def discover_numbered_module_headings(
+    blocks: list[ParagraphBlock | TableBlock],
+) -> set[str]:
+    """Find document-specific numbered modules from its own overview.
+
+    A plain Arabic-numbered paragraph is accepted only when its short title also
+    appears as an overview bracket label such as ``【系列品】``.  This preserves
+    industry-specific 9+ module documents without reviving the old bug where
+    numbered body rules became extra chapters.
+    """
+    overview_names: set[str] = set()
+    for block in blocks:
+        if not isinstance(block, ParagraphBlock) or not block.text:
+            continue
+        match = re.match(r"^\s*【([^】]+)】\s*[：:]", block.text)
+        if match:
+            overview_names.add(clean_text(match.group(1)))
+
+    discovered: set[str] = set()
+    for block in blocks:
+        if not isinstance(block, ParagraphBlock) or block.images or not block.text:
+            continue
+        match = re.match(r"^\s*\d{1,2}[、.．]\s*([^：:，。；！？,;!?]{1,20})\s*$", block.text)
+        if not match:
+            continue
+        core = clean_text(match.group(1))
+        if core in SPEC_MODULE_NAMES or any(equivalent_module_name(core, name) for name in overview_names):
+            discovered.add(block.text)
+    return discovered
 TITLE_PAREN_RE = re.compile(r"[（(][^（）()]*[)）]\s*$")
-TITLE_METRIC_RE = re.compile(r"[（(]\s*([^（）()]*?\d+(?:\.\d+)?\s*%)\s*[)）]\s*$")
+TITLE_METRIC_RE = re.compile(
+    r"[（(]\s*([^（）()]*?\d+(?:\.\d+)?\s*(?:%|％|PP))\s*[)）]\s*$",
+    re.I,
+)
 
 
 def section_core(text: str) -> str:
@@ -373,7 +444,7 @@ def section_core(text: str) -> str:
 
 
 def section_title_metric(text: str) -> str | None:
-    """A 「（…转化率提升+X%）」title suffix → its metric string for a green bar.
+    """A 「（…转化率提升+X%/PP）」title suffix → its metric string for a green bar.
     A missing plus sign after 提升/增长 is normalised in so it renders green."""
     m = TITLE_METRIC_RE.search(text)
     if not m:
@@ -381,7 +452,11 @@ def section_title_metric(text: str) -> str | None:
     return clean_text(m.group(1))  # keep source text verbatim (no injected +)
 
 
-def is_section_heading(block: ParagraphBlock, heading_styles_present: bool = False) -> bool:
+def is_section_heading(
+    block: ParagraphBlock,
+    heading_styles_present: bool = False,
+    numbered_module_headings: set[str] | None = None,
+) -> bool:
     text = block.text
     if not text or block.images:
         return False
@@ -397,6 +472,8 @@ def is_section_heading(block: ParagraphBlock, heading_styles_present: bool = Fal
     # 即使带阿拉伯数字前缀（1、主图规范）也认，且优先于下面所有启发式。
     module_core = spec_module_core(text)
     if module_core in SPEC_MODULE_NAMES:
+        return True
+    if numbered_module_headings and text in numbered_module_headings:
         return True
     # 「整体规范综述」这类概述卡保留识别。
     if section_core(text).startswith("整体规范"):
@@ -475,14 +552,30 @@ def split_sections(blocks: list[ParagraphBlock | TableBlock]) -> tuple[str, list
         return "未命名规范", [("整体规范综述", blocks, None)]
     title = strip_title_prefix(blocks[first_text_index].text)  # type: ignore[union-attr]
     body = blocks[first_text_index + 1 :]
+    # Some source documents contain both a real first title paragraph and a
+    # second authoring instruction such as ``标题：潮玩IP行业商品信息运营规范``.
+    # The latter only tells us what belongs in the Hero; never repeat it as the
+    # overview lead. Restrict this rewrite to the first body block so genuine
+    # later prose beginning with “标题：” is preserved.
+    if body and isinstance(body[0], ParagraphBlock):
+        title_instruction = re.match(
+            r"^\s*(?:主标题|标题|文档标题|page\s*title)\s*[:：]\s*(.+)$",
+            body[0].text,
+            flags=re.I,
+        )
+        if title_instruction and clean_text(title_instruction.group(1)) == clean_text(title):
+            body = body[1:]
     heading_styles_present = document_uses_heading_styles(blocks)
+    numbered_module_headings = discover_numbered_module_headings(blocks)
     sections: list[tuple[str, list[ParagraphBlock | TableBlock], str | None]] = []
     current_title = "整体规范综述"
     current_metric: str | None = None
     current_blocks: list[ParagraphBlock | TableBlock] = []
 
     for block in body:
-        if isinstance(block, ParagraphBlock) and is_section_heading(block, heading_styles_present):
+        if isinstance(block, ParagraphBlock) and is_section_heading(
+            block, heading_styles_present, numbered_module_headings
+        ):
             if current_blocks:
                 sections.append((current_title, current_blocks, current_metric))
             current_title = clean_section_title(block.text)
@@ -510,15 +603,22 @@ BRACKET_RE = re.compile(r"^\s*(【[^】]+】)\s*(.*)$")
 CIRCLED_RE = re.compile(r"^\s*[①②③④⑤⑥⑦⑧⑨⑩⑪⑫]")
 LOCAL_SUBHEAD_RE = re.compile(r"^\s*[（(][0-9一二三四五六七八九十]+[）)]")
 NUMBERED_ITEM_RE = re.compile(r"^\s*(?:\d+|[一二三四五六七八九十]+)[、.．]")
-METRIC_PAIR_RE = re.compile(r"([一-龥A-Za-z·]{2,12})\s*([+＋]\s*\d+(?:\.\d+)?\s*%)")
+METRIC_UNIT_RE = r"(?:%|％|PP)"
+METRIC_PAIR_RE = re.compile(
+    rf"([一-龥A-Za-z·]{{2,12}})\s*([+＋]\s*\d+(?:\.\d+)?\s*{METRIC_UNIT_RE})",
+    re.I,
+)
 # "前缀：内容" lead-in, e.g. 总结：…/字数范围：…/卖点建议顺序：… — gets a red square + pink highlight.
 COLON_PREFIX_RE = re.compile(r"^([^：:\n]{1,18}[：:])(.+)$")
 # A conversion metric embedded inside a longer label, e.g. "2.优化前后图 商详转化率+2%".
-METRIC_INLINE_RE = re.compile(r"[一-龥A-Za-z·]{2,12}\s*[+＋]\s*\d+(?:\.\d+)?\s*%")
+METRIC_INLINE_RE = re.compile(
+    rf"[一-龥A-Za-z·]{{2,12}}\s*[+＋]\s*\d+(?:\.\d+)?\s*{METRIC_UNIT_RE}",
+    re.I,
+)
 
 
 def split_label_metric(label: str) -> tuple[str | None, str | None]:
-    """Pull an embedded "XX率+X%" metric out of a label so it can be rendered as a
+    """Pull an embedded "XX率+X%/PP" metric out of a label so it can be rendered as a
     standalone green emphasis bar, leaving the rest of the label as the title."""
     match = METRIC_INLINE_RE.search(label)
     if not match:
@@ -529,14 +629,22 @@ def split_label_metric(label: str) -> tuple[str | None, str | None]:
 
 
 def is_conversion_metric(text: str) -> bool:
-    """A standalone one-or-many metric line that deserves green emphasis."""
+    """A standalone one-or-many metric line that deserves green emphasis.
+
+    Accept either bare metrics or a source/cohort/date label followed by a colon,
+    e.g. ``10SKU（0522-0531）：商详转化率+13.63%，提袋率+0.97%``.
+    ``%``/``％`` and ``PP`` are equivalent metric units for component routing.
+    """
     cleaned = clean_text(text)
     if not METRIC_PAIR_RE.search(cleaned):
         return False
     remainder = METRIC_PAIR_RE.sub("", cleaned)
-    remainder = re.sub(r"^效果数据\s*[：:]?", "", remainder)
     remainder = re.sub(r"[；;、，,\s]", "", remainder)
-    return not remainder
+    if not remainder or remainder in {"效果数据", "数据效果"}:
+        return True
+    # Preserve the source label verbatim inside the green component; require a
+    # terminal colon so ordinary prose containing a percentage is not promoted.
+    return bool(re.fullmatch(r"[^：:]{1,40}[：:]", remainder))
 
 
 METRIC_ARROW_SVG = (
@@ -756,6 +864,16 @@ def classify_table(table: Table, label: str | None = None, video_section: bool =
         return "attr"
     if "品质标签示例" in header_cells:
         return "tag_example"
+    # Image-only showcase tables use one merged/equivalent heading across equal
+    # columns. Route them through the shared-height media component so a narrower
+    # source screenshot does not appear visibly shorter than its siblings.
+    nonempty_headers = [value for value in header_cells if value]
+    if (
+        len(nonempty_headers) >= 2
+        and len(set(nonempty_headers)) == 1
+        and nonempty_headers[0] in {"展现样式", "前台展示案例"}
+    ):
+        return "tag_example"
     # A module-layout source is not a before/after comparison. Keep the source
     # image/text table intact for the mandatory model-led redraw step.
     if label and "首图模块化" in label:
@@ -764,8 +882,6 @@ def classify_table(table: Table, label: str | None = None, video_section: bool =
         return "before_after"
     if ncol >= 3 and ("内容要求" in header or "示例" in header):
         return "spec"
-    if ncol == 2:
-        return "before_after"
     return "generic"
 
 
@@ -796,30 +912,10 @@ def before_after(table: Table, doc: DocumentObject, blobs: dict[str, bytes]) -> 
 
 
 def spec_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes]) -> str:
-    rows_html: list[str] = []
-    for row_idx, row in enumerate(table.rows):
-        cells_html: list[str] = []
-        for cell_index, cell in enumerate(row.cells):
-            content = ""
-            has_media = False
-            for paragraph in cell.paragraphs:
-                txt = clean_text(paragraph.text)
-                if txt:
-                    content += f"<span>{esc(txt)}</span>"
-                for target in paragraph_images(doc, paragraph):
-                    if target in blobs:
-                        has_media = True
-                        content += f'<div class="image-holder">{image_tag(target, blobs, "示例")}</div>'
-            row_head = row_idx > 0 and cell_index == 0 and is_short_row_header(clean_text(cell.text))
-            classes = ["spec-cell"]
-            if row_head:
-                classes.append("row-head")
-            if has_media:
-                classes.append("spec-media-cell")
-            cells_html.append(f'<div class="{" ".join(classes)}">{content}</div>')
-        row_class = "spec-row spec-head" if row_idx == 0 else "spec-row"
-        rows_html.append(f'<div class="{row_class}">{"".join(cells_html)}</div>')
-    return f'<div class="spec-table">{"".join(rows_html)}</div>'
+    # Use a real table so the PDF's shared 示例 header and any other merged cells
+    # remain semantic colspan/rowspan relationships.  The spec-table class only
+    # selects the canonical 1fr/2fr/3fr column proportions.
+    return render_table(table, doc, blobs, extra_class="spec-table")
 
 
 def cell_image_targets(cell: object, doc: DocumentObject, blobs: dict[str, bytes]) -> list[str]:
@@ -942,14 +1038,15 @@ def video_case_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes])
     )
 
 
-def table_group(
-    label: str | None,
+def table_component(
     table: Table,
     doc: DocumentObject,
     blobs: dict[str, bytes],
-    metric: str | None = None,
+    *,
+    label: str | None = None,
     video_section: bool = False,
-) -> str:
+) -> tuple[str, str]:
+    """Return the semantic table kind and its unwrapped component HTML."""
     kind = classify_table(table, label=label, video_section=video_section)
     if kind == "before_after":
         inner = before_after(table, doc, blobs)
@@ -966,8 +1063,27 @@ def table_group(
     elif kind == "tag_example":
         inner = render_table(table, doc, blobs, extra_class="tag-example-table")
     else:
-        label_html = label_line(label) if label else ""
-        return f'<div class="text-block">{label_html}{render_table(table, doc, blobs)}</div>' if label else render_table(table, doc, blobs)
+        inner = render_table(table, doc, blobs)
+    return kind, inner
+
+
+def table_group(
+    label: str | None,
+    table: Table,
+    doc: DocumentObject,
+    blobs: dict[str, bytes],
+    metric: str | None = None,
+    video_section: bool = False,
+) -> str:
+    kind, inner = table_component(
+        table,
+        doc,
+        blobs,
+        label=label,
+        video_section=video_section,
+    )
+    if kind == "generic" and not label:
+        return inner
     label_html = label_line(label) if label else ""
     # Embedded metric (e.g. 商详转化率+2%) sits under the title, spanning the same
     # width as the before/after (优化前+优化后) columns below it.
@@ -988,6 +1104,7 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
     module_items: list[str] = []  # captured 主图首张 module names, for the layout redraw
     lead_done = False
     video_card_done = False  # in a 主图视频 section, emit the play card only once
+    consumed_until = -1
 
     def flush_plain() -> None:
         nonlocal plain_items
@@ -1060,7 +1177,33 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
             return False
         return False
 
+    def subtitle_table_pairs(idx: int) -> tuple[list[tuple[str, Table]], int]:
+        """Collect consecutive ``child label → table`` pairs after a local subtitle.
+
+        These pairs are one semantic child group in the PDF and must remain in
+        the subtitle's white container. Their labels render as grey-square child
+        headings rather than separate red/pink modules.
+        """
+        pairs: list[tuple[str, Table]] = []
+        cursor = idx + 1
+        while cursor + 1 < len(blocks):
+            label_block = blocks[cursor]
+            table_block = blocks[cursor + 1]
+            if not (
+                isinstance(label_block, ParagraphBlock)
+                and label_block.text
+                and not label_block.images
+                and is_label(label_block.text)
+                and isinstance(table_block, TableBlock)
+            ):
+                break
+            pairs.append((label_block.text, table_block.table))
+            cursor += 2
+        return pairs, cursor
+
     for idx, block in enumerate(blocks):
+        if idx <= consumed_until:
+            continue
         if isinstance(block, TableBlock):
             flush_plain()
             flush_bracket()
@@ -1120,12 +1263,35 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
                 video_card_done = True
             continue
 
-        # Numbered local subtitles such as （1）…（4） belong to the following
-        # table inside the same white module; they are never standalone chapters.
-        if LOCAL_SUBHEAD_RE.match(text) and table_follows(idx):
+        # Numbered local subtitles such as （1）…（4） always open a pink-marked
+        # child module inside the current chapter. They may introduce a label
+        # and table several blocks later, so requiring an immediately following
+        # table incorrectly demotes the first subtitle to a grey list item.
+        if LOCAL_SUBHEAD_RE.match(text):
             flush_plain()
             flush_bracket()
             flush_label()
+            pairs, next_index = subtitle_table_pairs(idx)
+            if pairs:
+                group_inner = label_line(text)
+                for child_label, child_table in pairs:
+                    _, child_table_html = table_component(
+                        child_table,
+                        doc,
+                        blobs,
+                        label=child_label,
+                        video_section=video_section,
+                    )
+                    group_inner += (
+                        '<div class="nested-table-group">'
+                        f'{caption_line(child_label)}{child_table_html}'
+                        '</div>'
+                    )
+                rendered.append(
+                    f'<div class="text-block subtitle-table-group">{group_inner}</div>'
+                )
+                consumed_until = next_index - 1
+                continue
             pending_label = text
             pending_items = []
             pending_images = []
@@ -1313,12 +1479,21 @@ def download_runtime() -> str:
     Scale is clamped so the canvas height stays under the browser limit."""
     if not DEFAULT_H2C.exists():
         return ""
-    lib = DEFAULT_H2C.read_text(encoding="utf-8")
+    lib_b64 = base64.b64encode(DEFAULT_H2C.read_bytes()).decode("ascii")
     return (
         '<button id="dl-page-btn" class="dl-page-btn" data-html2canvas-ignore>下载整页图片</button>\n'
-        f"<script>{lib}</script>\n"
+        f'<script type="application/octet-stream" id="html2canvas-src-b64" data-html2canvas-ignore>{lib_b64}</script>\n'
         "<script>(function(){var b=document.getElementById('dl-page-btn');"
-        "if(!b||!window.html2canvas)return;"
+        "var srcEl=document.getElementById('html2canvas-src-b64');"
+        "function ensureH2C(){if(window.html2canvas){if(b)b.setAttribute('data-h2c-status','ready');return true;}"
+        "if(b)b.setAttribute('data-h2c-status','loading');if(!srcEl){if(b)b.setAttribute('data-h2c-status','missing-source');return false;}"
+        "try{var bin=atob(srcEl.textContent.trim());var bytes=new Uint8Array(bin.length);"
+        "for(var i=0;i<bin.length;i++){bytes[i]=bin.charCodeAt(i);}"
+        "var lib=new TextDecoder('utf-8').decode(bytes);"
+        "var s=document.createElement('script');s.text='(function(){var module=undefined,exports=undefined,define=undefined;'+lib+'\\n}).call(window);';"
+        "document.head.appendChild(s);s.remove();var ok=!!window.html2canvas;if(b)b.setAttribute('data-h2c-status',ok?'ready':'unregistered');return ok;}"
+        "catch(e){if(b)b.setAttribute('data-h2c-status','error');console.error(e);return false;}}"
+        "if(!b||!ensureH2C())return;"
         f"{HERO_FLATTEN_JS}{VIDEO_SWAP_JS}"
         "b.addEventListener('click',function(){var p=document.querySelector('.poster');if(!p)return;"
         "var t=b.textContent;b.textContent='生成中…';b.disabled=true;var restore=null,vrestore=null;"
@@ -1339,7 +1514,9 @@ def editor_runtime() -> str:
     base64 so the page stays self-contained / offline (no second file needed)."""
     if not DEFAULT_EDITOR.exists():
         return ""
-    b64 = base64.b64encode(DEFAULT_EDITOR.read_bytes()).decode("ascii")
+    editor_bytes = DEFAULT_EDITOR.read_bytes()
+    editor_sha256 = hashlib.sha256(editor_bytes).hexdigest()
+    b64 = base64.b64encode(editor_bytes).decode("ascii")
     launcher = (
         "(function(){var b=document.getElementById('edit-page-btn');"
         "var srcEl=document.getElementById('editor-src-b64');"
@@ -1366,7 +1543,7 @@ def editor_runtime() -> str:
     )
     return (
         '<button id="edit-page-btn" class="edit-page-btn" data-html2canvas-ignore>编辑</button>\n'
-        f'<script type="application/octet-stream" id="editor-src-b64" data-html2canvas-ignore>{b64}</script>\n'
+        f'<script type="application/octet-stream" id="editor-src-b64" data-editor-sha256="{editor_sha256}" data-html2canvas-ignore>{b64}</script>\n'
         f"<script>{launcher}</script>"
     )
 
@@ -1454,7 +1631,11 @@ def main() -> int:
     )
     parser.add_argument("--font", type=Path, default=DEFAULT_FONT)
     parser.add_argument("--updated", default=None, help='Hero update label. Examples: "2026.06" or "更新日期 2026年06月".')
-    parser.add_argument("--editable", action="store_true", help="Add an optional in-page text editing toolbar and download button.")
+    parser.add_argument(
+        "--editable",
+        action="store_true",
+        help="Add the optional inline contenteditable toolbar; omit for standard delivery, which already includes 编辑 and 下载整页图片.",
+    )
     parser.add_argument("--strict", action="store_true", help="Exit non-zero if any generated report has warnings.")
     args = parser.parse_args()
 

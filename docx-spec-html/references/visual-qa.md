@@ -32,8 +32,10 @@ Confirm:
 - red-square labels, title-only pink highlight, grey-square nested items, and consistent indentation;
 - approximately 28px body text without clipping or overlap;
 - proportional, centered images and unclipped captions;
-- aligned table columns and merged headers/cells; body copy is justified with its final line aligned left while headers remain centered;
-- one consistent rounded-card table system: 24px justified body copy, 24px/700 centered red top headers, light-grey body cells, bold short first-column row headers, 10px corners, 8px gaps, and 12px equal inset around every table image;
+- aligned table columns and merged headers/cells; all table text is horizontally and vertically centered;
+- one consistent rounded-card table system: 24px centered body copy, 24px/700 centered red top headers, light-grey body cells, bold short first-column row headers, 10px corners, 8px gaps, and 12px equal inset around every table image;
+- one shared white container for any local subtitle plus consecutive child-label tables; grey child squares and nested indentation remain visible;
+- equal visible image heights across `展现样式`/showcase rows without stretching source proportions;
 - grey-square bracket children aligned to the exact `.source-list` nested indent, identical typography across numbered siblings, and pink markers on all module-local numbered subtitles;
 - equal-height `视频案例` / `点击播放` headers with the play icon retained;
 - two-column long image runs rather than cramped four-column grids;

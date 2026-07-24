@@ -103,7 +103,31 @@ def count_class(html_text: str, class_name: str) -> int:
     return len(re.findall(pattern, html_text, flags=re.I))
 
 
-def structural_checks(html_text: str, visible: str, expected_images: int) -> tuple[dict[str, bool], list[str]]:
+SOURCE_METRIC_PAIR_RE = re.compile(
+    r"[一-龥A-Za-z·]{2,12}\s*[+＋]\s*\d+(?:\.\d+)?\s*(?:%|％|PP)",
+    re.I,
+)
+
+
+def is_source_metric_line(text: str) -> bool:
+    """Whether a source paragraph must map to one green metric-emphasis bar."""
+    cleaned = clean_text(text)
+    if not SOURCE_METRIC_PAIR_RE.search(cleaned):
+        return False
+    remainder = SOURCE_METRIC_PAIR_RE.sub("", cleaned)
+    remainder = re.sub(r"[；;、，,\s]", "", remainder)
+    if not remainder or remainder in {"效果数据", "数据效果"}:
+        return True
+    return bool(re.fullmatch(r"[^：:]{1,40}[：:]", remainder))
+
+
+def structural_checks(
+    html_text: str,
+    visible: str,
+    expected_images: int,
+    expected_metrics: int,
+    title_directives: list[str],
+) -> tuple[dict[str, bool], list[str]]:
     h2_texts = [
         strip_tags(match)
         for match in re.findall(r"<h2\b[^>]*>(.*?)</h2>", html_text, flags=re.I | re.S)
@@ -133,6 +157,9 @@ def structural_checks(html_text: str, visible: str, expected_images: int) -> tup
     sublevel_count = count_class(html_text, "sublevel")
     row_head_count = count_class(html_text, "row-head")
     metric_count = count_class(html_text, "metric-emphasis")
+    subtitle_table_group_count = count_class(html_text, "subtitle-table-group")
+    nested_table_group_count = count_class(html_text, "nested-table-group")
+    tag_example_table_count = count_class(html_text, "tag-example-table")
     video_case_count = count_class(html_text, "video-case-grid")
     video_case_card_count = count_class(html_text, "video-case-card")
     screen_count = len(re.findall(r"第\s*\d+\s*屏|【第\s*\d+\s*屏】", visible))
@@ -164,6 +191,13 @@ def structural_checks(html_text: str, visible: str, expected_images: int) -> tup
             html_text,
         )
     )
+    local_subtitle_wrong_component = bool(
+        re.search(
+            r'<(?:li|p)\b[^>]*>\s*[（(][0-9一二三四五六七八九十]+[）)]',
+            html_text,
+            flags=re.I,
+        )
+    )
     table_system_tokens = (
         "--table-font-size: 24px",
         "--table-header-weight: 700",
@@ -172,10 +206,16 @@ def structural_checks(html_text: str, visible: str, expected_images: int) -> tup
         "--table-cell-radius: 10px",
         "--table-cell-gap: 8px",
         "--table-media-padding: 12px",
+        "--tag-example-media-height: 480px",
         "border-collapse: separate",
-        "text-align: justify",
-        "text-align-last: left",
+        "text-align: center",
+        "text-align-last: center",
     )
+    subtitle_table_group_needed = all(
+        token in visible
+        for token in ("（1）首张主图建议方向", "动物毛绒玩偶：", "BJD/兵人（建议）：")
+    )
+    showcase_equal_height_needed = "展现样式" in visible
 
     checks = {
         "section_title_single_spaced_braces": bool(h2_texts)
@@ -194,8 +234,21 @@ def structural_checks(html_text: str, visible: str, expected_images: int) -> tup
         "overview_children_use_grey_sublevels": not overview_sublevels_needed
         or (sublevel_count >= 3 and sublevel_indent_present),
         "numbered_siblings_keep_equal_weight": not numbered_item_bolded,
-        "local_numbered_subtitles_use_pink_marker": not local_subtitle_plain,
-        "conversion_metrics_use_green_component": "效果数据" not in visible or metric_count > 0,
+        "local_numbered_subtitles_use_pink_marker": not (
+            local_subtitle_plain or local_subtitle_wrong_component
+        ),
+        "conversion_metrics_use_green_component": metric_count >= expected_metrics,
+        "title_instruction_not_rendered_as_body_copy": not any(
+            directive in visible for directive in title_directives
+        ),
+        "subtitle_child_tables_share_one_white_group": not subtitle_table_group_needed
+        or (subtitle_table_group_count >= 1 and nested_table_group_count >= 2),
+        "showcase_images_use_equal_height_component": not showcase_equal_height_needed
+        or (
+            tag_example_table_count >= 1
+            and "height: var(--tag-example-media-height)" in html_text
+            and "width: auto" in html_text
+        ),
         "rounded_table_typography_system_present": all(token in html_text for token in table_system_tokens),
         "short_first_column_cells_use_row_headers": (
             "material-table" not in html_text and "spec-table" not in html_text
@@ -224,7 +277,10 @@ def structural_checks(html_text: str, visible: str, expected_images: int) -> tup
         "numbered_siblings_keep_equal_weight": "Numbered siblings such as 1、/2、/3、 must keep equal weight; do not bold only the item that contains a colon.",
         "local_numbered_subtitles_use_pink_marker": "Module-local numbered subtitles must use label-text with the pink marker, not label-plain.",
         "conversion_metrics_use_green_component": "Effect/conversion metrics must use the green metric-emphasis component.",
-        "rounded_table_typography_system_present": "Semantic tables must embed the canonical rounded 24px justified-body table-card system with equal image insets.",
+        "title_instruction_not_rendered_as_body_copy": "A leading 标题：XXX authoring instruction must feed the Hero only and must not leak into overview body copy.",
+        "subtitle_child_tables_share_one_white_group": "Consecutive child-label tables under one local subtitle must share one white subtitle-table-group with grey nested headings.",
+        "showcase_images_use_equal_height_component": "展现样式 image showcases must use tag-example-table and one proportional shared image height.",
+        "rounded_table_typography_system_present": "Semantic tables must embed the canonical rounded 24px centered table-card system with equal image insets.",
         "short_first_column_cells_use_row_headers": "Short first-column body labels must use the bold row-head class.",
         "attribute_headers_default_to_red": "Attribute/keyword headers default to red; grey headers require an explicit is-semantic-alt role.",
         "video_case_headers_share_one_component": "视频案例 and 点击播放 must share the video-case-card component with equal-height headers and the play control.",
@@ -237,6 +293,11 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
     html_text = html_path.read_text(encoding="utf-8")
     visible = html_visible_text(html_text)
     source_texts = docx_texts(docx_path)
+    title_directives = [
+        text
+        for text in source_texts
+        if re.match(r"^\s*(?:主标题|标题|文档标题|page\s*title)\s*[:：]", text, flags=re.I)
+    ]
     expected_counts = Counter(source_texts)
     actual_counts = Counter()
     missing: list[str] = []
@@ -255,7 +316,11 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
             # A chapter title's 「（…X%）」metric is split into the h2 title plus a
             # green bar (separated by the INTRODUCTION label), so the full string is
             # never contiguous. Pass when the title core and the metric each appear.
-            mt = re.match(r"^(.*?)[（(]\s*([^（）()]*\d+(?:\.\d+)?\s*%)\s*[)）]$", text)
+            mt = re.match(
+                r"^(.*?)[（(]\s*([^（）()]*\d+(?:\.\d+)?\s*(?:%|％|PP))\s*[)）]$",
+                text,
+                flags=re.I,
+            )
             if mt:
                 core_n = normalize_for_match(mt.group(1))
                 metric_n = normalize_for_match(mt.group(2))
@@ -269,8 +334,8 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
                 or re.search(r"https?://", text)
             ):
                 continue
-            # 一级模块标题在源文里写成 `1、主图规范`…`8、属性`，HTML 里按规范去掉了
-            # `N、` 前缀渲染成 `{ 主图规范 }`。去掉阿拉伯/中文数字前缀后能在可见文本
+            # 一级模块标题在源文里写成 `N、模块名`，HTML 里按规范去掉 `N、`
+            # 前缀并把编号移到卡片角标。去掉阿拉伯/中文数字前缀后能在可见文本
             # 里找到，就是有意改写、不算缺字。
             stripped_prefix = re.sub(r"^\s*[（(]?[0-9一二三四五六七八九十]+[）)、.．]\s*", "", text)
             if stripped_prefix != text:
@@ -288,6 +353,7 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
             underrepresented.append({"text": text, "expected": expected, "actual": actual})
 
     expected_images = docx_image_count(docx_path)
+    expected_metrics = sum(is_source_metric_line(text) for text in source_texts)
     all_images = len(re.findall(r"<img\b", html_text, flags=re.I))
     # Synthetic Hero overlays are UI/runtime assets, not DOCX content images.
     synthetic_images = count_class(html_text, "hero-overlay")
@@ -297,13 +363,14 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
     redrawn_images = len(re.findall(r'class="[^"]*module-layout', html_text))
     effective_images = actual_images + redrawn_images
     expected_tables = docx_table_count(docx_path)
-    actual_table_like = (
-        len(re.findall(r"<table\b", html_text, flags=re.I))
-        + len(
-            re.findall(
-                r'class="[^"]*(?:word-table-spec|spec-table|ba-compare|video-case-grid|module-layout)',
-                html_text,
-            )
+    # Count real tables once, then add only non-table semantic components.  A
+    # canonical table may also carry ``spec-table``/``word-table-spec`` classes;
+    # counting the class independently would overstate preservation.
+    actual_table_like = len(re.findall(r"<table\b", html_text, flags=re.I)) + len(
+        re.findall(
+            r'<(?!table\b)[^>]+class="[^"]*(?:word-table-spec|spec-table|ba-compare|video-case-grid|module-layout)',
+            html_text,
+            flags=re.I,
         )
     )
 
@@ -329,7 +396,13 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
             ]
         ),
     }
-    structure_checks, structure_warnings = structural_checks(html_text, visible, max(0, expected_images - redrawn_images))
+    structure_checks, structure_warnings = structural_checks(
+        html_text,
+        visible,
+        max(0, expected_images - redrawn_images),
+        expected_metrics,
+        title_directives,
+    )
 
     warnings: list[str] = []
     if missing:
@@ -359,6 +432,8 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
         "redrawn_image_count": redrawn_images,
         "expected_table_count": expected_tables,
         "actual_table_like_count": actual_table_like,
+        "expected_metric_count": expected_metrics,
+        "actual_metric_count": count_class(html_text, "metric-emphasis"),
         "css_checks": css_checks,
         "structure_checks": structure_checks,
         "passed": not warnings,
