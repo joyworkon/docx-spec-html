@@ -1,6 +1,6 @@
 # JOYCODE.md
 
-本仓库的核心是一个 JoyCode Skill：**`docx-spec-html`** —— 把京东「商品信息运营规范」类 Word `.docx` 文档转成生产级单文件 HTML 长图页。`GeneratedProducts/` 存放用该 skill 生成的实际产物。
+本仓库的核心是一个 JoyCode Skill：**`docx-spec-html`** —— 把京东「商品信息运营规范」类 Word `.docx` 文档转成生产级单文件 HTML 长图页。
 
 ## 仓库结构
 
@@ -12,8 +12,8 @@
   - `scripts/` —— `extract_docx_manifest.py`（抽料）、`batch_generate.py`（草稿生成器）、`validate_output.py`（校验）
   - `assets/` —— 唯一 CSS 源、WOFF2 hero 字体、轻量 golden 参考与 `vendor/` 运行时
   - `agents/openai.yaml` —— 外部工具集成的 agent 接口定义
-- `GeneratedProducts/` —— 生成产物；`*-rebuild/` 目录里的 `probe_*.py`/`patch_*.py`/`inspect_*.py` 是一次性调试脚本，不是可复用工具
-- `.joycode/memory/` —— 跨会话记忆（已记录「PDF 为主料」这条核心反馈）
+- `install.sh` / `install.ps1` —— macOS、Windows 的 JoyCode 一键安装入口
+- `docx-spec-html/scripts/preflight.py` —— 安装完整性与运行依赖自检
 
 ## 最重要的规则（违反过会被用户挑错）
 
@@ -25,18 +25,23 @@
 
 ## 运行脚本前的环境准备
 
-脚本依赖 **`python-docx`**。环境缺少依赖时安装：
+不要单独复制 `SKILL.md`。从仓库根目录运行对应安装器；安装器会复制整个 Skill、通过 `uv` 创建隔离的 Python 3.12 环境、安装 `python-docx` 与 OfficeCLI，并执行自检：
 
 ```bash
-python3 -m pip install --user python-docx
+# macOS
+bash install.sh
+
+# Windows PowerShell
+.\install.ps1
 ```
 
-常用命令（均在 `docx-spec-html/` 下相对 skill 根目录运行）：
+所有相对资源路径必须从 `SKILL.md` 所在的 Skill 根目录解析。常用命令使用安装器创建的 `.venv`：
 
 ```bash
-python3 scripts/extract_docx_manifest.py /path/to/source.docx --out /path/to/source-manifest.json
-python3 scripts/batch_generate.py /path/to/source.docx /path/to/output   # 可加 --style custom.css / --updated 2026.06 / --editable / --strict
-python3 scripts/validate_output.py /path/to/source.docx /path/to/final.html --strict
+"$SKILL_ROOT/.venv/bin/python" "$SKILL_ROOT/scripts/preflight.py"
+"$SKILL_ROOT/.venv/bin/python" "$SKILL_ROOT/scripts/extract_docx_manifest.py" /path/to/source.docx --out /path/to/source-manifest.json
+"$SKILL_ROOT/.venv/bin/python" "$SKILL_ROOT/scripts/batch_generate.py" /path/to/source.docx /path/to/output
+"$SKILL_ROOT/.venv/bin/python" "$SKILL_ROOT/scripts/validate_output.py" /path/to/source.docx /path/to/final.html --strict
 ```
 
 `--design` 继续作为 `--style` 的兼容别名，并可读取旧版含 CSS 代码块的 Markdown 设计文件。

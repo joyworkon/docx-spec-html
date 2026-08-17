@@ -4,6 +4,9 @@
 # Packaged skill archive (redundant build artifact of the tracked docx-spec-html/ tree)
 docx-spec-html.zip
 
+# Installer-created Python runtime
+docx-spec-html/.venv/
+
 # test/ is its own separate git repo (design source: index.html, fonts, decorator.svg)
 # kept out of this repo to avoid nested-repo collisions
 /test/

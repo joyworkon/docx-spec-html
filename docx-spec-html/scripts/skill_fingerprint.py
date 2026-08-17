@@ -9,6 +9,7 @@ from pathlib import Path
 
 IGNORED_NAMES = {".DS_Store"}
 IGNORED_SUFFIXES = {".pyc"}
+IGNORED_PARTS = {".venv", "__pycache__"}
 
 
 def fingerprint(root: Path) -> dict:
@@ -17,7 +18,7 @@ def fingerprint(root: Path) -> dict:
     size = 0
     for path in sorted(p for p in root.rglob("*") if p.is_file()):
         relative = path.relative_to(root)
-        if any(part == "__pycache__" for part in relative.parts):
+        if any(part in IGNORED_PARTS for part in relative.parts):
             continue
         if path.name in IGNORED_NAMES or path.suffix in IGNORED_SUFFIXES:
             continue
