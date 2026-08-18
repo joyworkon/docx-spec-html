@@ -7,14 +7,6 @@ description: Generate, batch-generate, validate, or refine production-quality si
 
 Convert Word specification documents into polished 1280px single-file HTML pages while preserving text, images, tables, order, and hierarchy.
 
-## Runtime bootstrap
-
-- `SKILL_ROOT` always means the directory containing this `SKILL.md`. Resolve every `scripts/`, `assets/`, and `references/` path from `SKILL_ROOT`, never from the caller's current working directory.
-- A repository checkout is not the Skill root: the installable Skill is the complete `docx-spec-html/` directory. Never install or copy `SKILL.md` alone.
-- The repository installers create an isolated Python environment at `SKILL_ROOT/.venv` and install `python-docx`. Use `SKILL_ROOT/.venv/bin/python` on macOS/Linux or `SKILL_ROOT\.venv\Scripts\python.exe` on Windows for every bundled Python script.
-- Before document work, run `scripts/preflight.py` with that Python executable. Do not report `scripts/` or `assets/` as missing until `SKILL_ROOT` has been resolved from this file's actual location.
-- `officecli` is a separate native executable. The repository installers provision it from the official `iOfficeAI/OfficeCLI` distribution and preflight verifies it.
-
 ## Core contract
 
 - Treat the companion PDF as the structural source of truth for content hierarchy, module boundaries, merged cells, and row/column relationships only. Never copy the PDF's colours, borders, corner treatment, spacing, or image-card styling; those always come from this Skill's HTML design system and golden reference.
@@ -36,12 +28,11 @@ Convert Word specification documents into polished 1280px single-file HTML pages
 ## Required workflow
 
 1. Obtain and read the companion PDF.
-2. Resolve `SKILL_ROOT`, set `SKILL_PYTHON` to the installer-created Python executable described above, run preflight, then extract the DOCX manifest:
+2. Verify OfficeCLI, then extract the DOCX manifest:
 
    ```bash
-   "$SKILL_PYTHON" "$SKILL_ROOT/scripts/preflight.py"
    officecli --version
-   "$SKILL_PYTHON" "$SKILL_ROOT/scripts/extract_docx_manifest.py" source.docx --out source-manifest.json
+   python3 scripts/extract_docx_manifest.py source.docx --out source-manifest.json
    ```
 
    Treat this manifest as the primary DOCX structure view. Read `outline_level`, `list_level`, run-level formatting, image paths/dimensions, and table `rowspan`/`colspan` values before making hierarchy decisions. The PDF still wins when exported DOCX structure and visible PDF structure disagree. Do not use `officecli view html` as the final page design.
@@ -49,7 +40,7 @@ Convert Word specification documents into polished 1280px single-file HTML pages
 3. Generate a baseline draft:
 
    ```bash
-   "$SKILL_PYTHON" "$SKILL_ROOT/scripts/batch_generate.py" source.docx output-dir
+   python3 scripts/batch_generate.py source.docx output-dir
    ```
 
    Use `--style path.css` for custom CSS. Legacy `--design path.md` remains compatible. The standard page already embeds the full visual editor behind the fixed `编辑` button; add `--editable` only when an explicitly requested extra inline-contenteditable toolbar is required.
@@ -59,20 +50,20 @@ Convert Word specification documents into polished 1280px single-file HTML pages
 6. During iteration, validate the candidate page:
 
    ```bash
-   "$SKILL_PYTHON" "$SKILL_ROOT/scripts/validate_output.py" source.docx final-output.html --strict
+   python3 scripts/validate_output.py source.docx final-output.html --strict
    ```
 
 7. During iteration, run the deterministic review gate. It auto-detects the body-care profile:
 
    ```bash
-   "$SKILL_PYTHON" "$SKILL_ROOT/scripts/review_gate.py" source.docx candidate.html --profile auto --out review-report.json
+   python3 scripts/review_gate.py source.docx candidate.html --profile auto --out review-report.json
    ```
 
 8. Complete the manual visual/runtime checks listed by the gate.
 9. Publish through the only supported production exit. It re-runs source validation and DOM contracts, binds the final HTML SHA-256 to its report, and refuses to write a failed output:
 
    ```bash
-   "$SKILL_PYTHON" "$SKILL_ROOT/scripts/finalize_output.py" source.docx candidate.html final-output.html --profile auto --report review-report.json
+   python3 scripts/finalize_output.py source.docx candidate.html final-output.html --profile auto --report review-report.json
    ```
 
 Never deliver a candidate file or copy/rename it into place without this finalization step.

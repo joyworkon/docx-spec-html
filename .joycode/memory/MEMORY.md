@@ -1,1 +1,0 @@
-- [docx-spec-html 以 PDF 为主料、模型主导层级重建](feedback_docx_spec_pdf_source.md) — 使用 docx-spec-html skill 生成规范 HTML 时,必须以用户提供的 PDF 为结构标准答案,由模型(而非纯脚本)重建层级,禁止把脚本机械草稿当成品

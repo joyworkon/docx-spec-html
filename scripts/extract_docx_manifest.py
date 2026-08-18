@@ -94,9 +94,10 @@ def parse_int(value: Any, default: int = 0) -> int:
 
 
 def officecli_executable(requested: str) -> str:
-    path = Path(requested).expanduser()
-    if path.is_file():
-        return str(path.resolve())
+    if "/" in requested:
+        path = Path(requested).expanduser()
+        if path.is_file():
+            return str(path.resolve())
     resolved = shutil.which(requested)
     if resolved:
         return resolved
