@@ -93,6 +93,81 @@ def parse_int(value: Any, default: int = 0) -> int:
         return default
 
 
+# The skill bundles OfficeCLI release binaries so a fresh skill install already
+# carries the capability. Missing platforms are downloaded from the official
+# release on first use and verified against the bundled SHA256SUMS.
+OFFICECLI_VENDOR_DIR = Path(__file__).resolve().parent.parent / "assets" / "vendor" / "officecli"
+OFFICECLI_RELEASE_BASE = "https://github.com/iOfficeAI/OfficeCLI/releases/latest/download"
+OFFICECLI_PLATFORM_ASSETS = {
+    ("darwin", "arm64"): "officecli-mac-arm64",
+    ("darwin", "x86_64"): "officecli-mac-x64",
+    ("linux", "x86_64"): "officecli-linux-x64",
+    ("linux", "aarch64"): "officecli-linux-arm64",
+    ("linux", "arm64"): "officecli-linux-arm64",
+    ("windows", "amd64"): "officecli-win-x64.exe",
+    ("windows", "x86_64"): "officecli-win-x64.exe",
+    ("windows", "arm64"): "officecli-win-arm64.exe",
+}
+
+
+def platform_asset_name() -> str | None:
+    import platform
+
+    key = (platform.system().lower(), platform.machine().lower())
+    return OFFICECLI_PLATFORM_ASSETS.get(key)
+
+
+def bundled_officecli() -> str | None:
+    """Path to the OfficeCLI binary shipped inside the skill, if it matches
+    the current platform."""
+    name = platform_asset_name()
+    if not name:
+        return None
+    candidate = OFFICECLI_VENDOR_DIR / name
+    if candidate.is_file():
+        candidate.chmod(0o755)
+        return str(candidate)
+    return None
+
+
+def expected_sha256(asset_name: str) -> str | None:
+    sums = OFFICECLI_VENDOR_DIR / "SHA256SUMS"
+    if not sums.is_file():
+        return None
+    for line in sums.read_text(encoding="utf-8").splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[1] == asset_name:
+            return parts[0]
+    return None
+
+
+def download_officecli(asset_name: str) -> str:
+    """Fetch the platform binary from the official release into the vendor dir,
+    verifying it against the bundled SHA256SUMS."""
+    import hashlib
+    import urllib.request
+
+    target = OFFICECLI_VENDOR_DIR / asset_name
+    url = f"{OFFICECLI_RELEASE_BASE}/{asset_name}"
+    try:
+        with urllib.request.urlopen(url, timeout=600) as response:
+            data = response.read()
+    except Exception as exc:  # noqa: BLE001 - surface any network failure uniformly
+        raise OfficeCLIError(
+            f"OfficeCLI is not bundled for this platform and downloading {url} failed: {exc}"
+        ) from exc
+    expected = expected_sha256(asset_name)
+    if expected:
+        actual = hashlib.sha256(data).hexdigest()
+        if actual != expected:
+            raise OfficeCLIError(
+                f"Downloaded {asset_name} failed SHA-256 verification ({actual} != {expected})."
+            )
+    target.write_bytes(data)
+    target.chmod(0o755)
+    return str(target)
+
+
 def officecli_executable(requested: str) -> str:
     if "/" in requested:
         path = Path(requested).expanduser()
@@ -101,6 +176,12 @@ def officecli_executable(requested: str) -> str:
     resolved = shutil.which(requested)
     if resolved:
         return resolved
+    bundled = bundled_officecli()
+    if bundled:
+        return bundled
+    asset = platform_asset_name()
+    if asset:
+        return download_officecli(asset)
     raise OfficeCLIError(
         "OfficeCLI is required for DOCX extraction. Install it from "
         "https://github.com/iOfficeAI/OfficeCLI and verify `officecli --version`."

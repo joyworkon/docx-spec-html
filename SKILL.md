@@ -22,7 +22,7 @@ Convert Word specification documents into polished 1280px single-file HTML pages
 - Read `references/visual-qa.md` before final delivery and whenever browser/export rendering differs.
 - Use `assets/styles.css` as the single canonical stylesheet. Do not copy CSS into Markdown references.
 - Compare visual treatment with `assets/examples/auto-oil-golden-reference.html` and its three compressed WebP snapshots.
-- Use `scripts/extract_docx_manifest.py` for OfficeCLI-backed structural extraction and `scripts/batch_generate.py` for draft generation. The manifest extractor requires the `officecli` executable and preserves its outline, list, run-format, image-anchor, and merged-cell metadata in a stable JSON schema. Use `scripts/dom_contracts.py` and `scripts/review_gate.py` for component/DOM validation. Publish production work only through `scripts/finalize_output.py`.
+- Use `scripts/extract_docx_manifest.py` for OfficeCLI-backed structural extraction and `scripts/batch_generate.py` for draft generation. The manifest extractor preserves outline, list, run-format, image-anchor, and merged-cell metadata in a stable JSON schema. OfficeCLI ships with the skill: the extractor first tries the system `officecli`, then falls back to the bundled binary under `assets/vendor/officecli/` (macOS arm64 included; other platforms are downloaded from the official release on first use and verified against the bundled `SHA256SUMS`). Use `scripts/dom_contracts.py` and `scripts/review_gate.py` for component/DOM validation. Publish production work only through `scripts/finalize_output.py`.
 - Use `scripts/rebind_embedded_editor.py` when a new `assets/vendor/html-editor.html` must also replace the editor embedded in an existing final page. It updates only the editor payload, its SHA-256 marker, and the generator release—never the document content or layout.
 
 ## Required workflow
@@ -34,6 +34,8 @@ Convert Word specification documents into polished 1280px single-file HTML pages
    officecli --version
    python3 scripts/extract_docx_manifest.py source.docx --out source-manifest.json
    ```
+
+   OfficeCLI is bundled with the skill (`assets/vendor/officecli/`), so the extractor still works when `officecli` is not on PATH: it falls back to the platform-matched bundled binary, or downloads and checksum-verifies the matching release binary on first use. Skip the `officecli --version` probe only in that bundled/offline context.
 
    Treat this manifest as the primary DOCX structure view. Read `outline_level`, `list_level`, run-level formatting, image paths/dimensions, and table `rowspan`/`colspan` values before making hierarchy decisions. The PDF still wins when exported DOCX structure and visible PDF structure disagree. Do not use `officecli view html` as the final page design.
 
