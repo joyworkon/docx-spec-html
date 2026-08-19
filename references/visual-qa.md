@@ -32,7 +32,8 @@ Confirm:
 - red-square labels, title-only pink highlight, grey-square nested items, and consistent indentation;
 - approximately 28px body text without clipping or overlap;
 - proportional, centered images and unclipped captions;
-- aligned table columns and merged headers/cells; all table text is horizontally and vertically centered;
+- aligned table columns and merged headers/cells; short table text is horizontally and vertically centered, while cell text longer than 10 visible characters is justified with a left-aligned last line;
+- long list items and `.label-rest` paragraphs justify flush on both edges with a left-aligned last line—spot-check mixed CJK/Latin lines (digits, `+`, codes), which only stretch through the injected U+200B break opportunities;
 - one consistent rounded-card table system: 24px centered body copy, 24px/700 centered red top headers, light-grey body cells, bold short first-column row headers, 10px corners, 8px gaps, and 12px equal inset around every table image;
 - one shared white container for any local subtitle plus consecutive child-label tables; grey child squares and nested indentation remain visible;
 - equal visible image heights across `展现样式`/showcase rows without stretching source proportions;

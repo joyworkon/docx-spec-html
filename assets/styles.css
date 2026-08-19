@@ -1634,3 +1634,19 @@ body.editing [contenteditable="true"] {
 }
 /* A colon-less label keeps the red square but no pink highlight bar. */
 .poster.auto-doc .label-plain { font-weight: 600; }
+/* Body text longer than 10 visible characters (list items, .label-rest
+   paragraphs, table cells) is justified with a left-aligned last line; lines
+   before a forced <br> break also stay left. batch_generate.py marks
+   qualifying nodes with .justify-li / .justify-txt and injects U+200B so
+   Blink can expand between CJK characters. Shorter text keeps its existing
+   alignment. */
+.poster.auto-doc li.justify-li {
+  text-align: justify;
+  text-align-last: left;
+}
+.poster.auto-doc .label-rest.justify-txt,
+.poster.auto-doc td.justify-txt,
+.poster.auto-doc th.justify-txt {
+  text-align: justify;
+  text-align-last: left;
+}

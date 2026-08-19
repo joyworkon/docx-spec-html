@@ -30,7 +30,7 @@ DEFAULT_FONT = SKILL_ROOT / "assets" / "fonts" / "JINGDONGLangZhengTi1-Bold.woff
 DEFAULT_H2C = SKILL_ROOT / "assets" / "vendor" / "html2canvas.min.js"
 DEFAULT_EDITOR = SKILL_ROOT / "assets" / "vendor" / "html-editor.html"
 GENERATOR_CSS_MARKER = "/* ===== Generic DOCX generator additions ===== */"
-SKILL_RELEASE = "2026.08.17-r14"
+SKILL_RELEASE = "2026.08.19-r15"
 
 
 @dataclass
@@ -53,6 +53,95 @@ def clean_text(value: str) -> str:
 
 def esc(value: str) -> str:
     return html.escape(value, quote=True)
+
+
+JUSTIFY_ZWSP = "\u200b"
+JUSTIFY_MIN_CHARS = 10  # strictly more than 10 visible characters qualifies
+# Kinsoku-style guards: never break right after an opening bracket or right
+# before closing punctuation when injecting break opportunities.
+JUSTIFY_OPEN = set("（【《“‘〈〔「『")
+JUSTIFY_CLOSE = set("），。；：、！？”’】》〉〕」』…")
+
+
+def justify_word_char(char: str) -> bool:
+    """ASCII printable runs (words, numbers, codes) stay atomic."""
+    return 0x21 <= ord(char) <= 0x7E
+
+
+def inject_justify_zwsp(text: str) -> str:
+    """Insert U+200B between characters so Blink can expand justification.
+
+    Blink's text-align: justify only expands at break opportunities (spaces);
+    mixed CJK/Latin lines without spaces stay ragged. Zero-width spaces give
+    the engine expansion points without visible width on the last line.
+    """
+    out: list[str] = []
+    for index, char in enumerate(text):
+        out.append(char)
+        if index + 1 >= len(text):
+            continue
+        nxt = text[index + 1]
+        if char == JUSTIFY_ZWSP or nxt == JUSTIFY_ZWSP:
+            continue
+        if char in JUSTIFY_OPEN or nxt in JUSTIFY_CLOSE:
+            continue
+        if char == " " or nxt == " ":
+            continue
+        if justify_word_char(char) and justify_word_char(nxt):
+            continue
+        out.append(JUSTIFY_ZWSP)
+    return "".join(out)
+
+
+def justify_visible_len(fragment: str) -> int:
+    text = html.unescape(re.sub(r"<[^>]+>", "", fragment))
+    return len(re.sub(r"\s", "", text))
+
+
+def justify_add_class(open_tag: str, cls: str = "justify-txt") -> str:
+    match = re.search(r'class="([^"]*)"', open_tag)
+    if match:
+        classes = match.group(1).split()
+        if cls not in classes:
+            classes.append(cls)
+        return open_tag[: match.start(1)] + " ".join(classes) + open_tag[match.end(1) :]
+    return open_tag[:-1] + f' class="{cls}">'
+
+
+def justify_long_text(fragment: str) -> str:
+    """Justify body text longer than 10 visible characters.
+
+    List items get .justify-li; .label-rest paragraphs and table cells get
+    .justify-txt; qualifying nodes also receive ZWSP injection. Shorter text
+    keeps its existing alignment (e.g. centred table cells, .row-head).
+    """
+
+    def process_inner(inner: str) -> str:
+        parts = re.split(r"(<[^>]+>)", inner)
+        return "".join(part if part.startswith("<") else inject_justify_zwsp(part) for part in parts)
+
+    def label_repl(match: re.Match) -> str:
+        inner = match.group(1)
+        if justify_visible_len(inner) <= JUSTIFY_MIN_CHARS:
+            return match.group(0)
+        return f'<div class="label-rest justify-txt">{process_inner(inner)}</div>'
+
+    def item_repl(match: re.Match) -> str:
+        open_tag, inner = match.group(1), match.group(2)
+        if justify_visible_len(inner) <= JUSTIFY_MIN_CHARS:
+            return match.group(0)
+        return justify_add_class(open_tag, "justify-li") + process_inner(inner) + "</li>"
+
+    def cell_repl(match: re.Match) -> str:
+        open_tag, kind, inner = match.group(1), match.group(2), match.group(3)
+        if justify_visible_len(inner) <= JUSTIFY_MIN_CHARS:
+            return match.group(0)
+        return justify_add_class(open_tag) + process_inner(inner) + f"</{kind}>"
+
+    fragment = re.sub(r'<div class="label-rest">(.*?)</div>', label_repl, fragment, flags=re.S)
+    fragment = re.sub(r"(<li(?:\s[^>]*)?>)(.*?)</li>", item_repl, fragment, flags=re.S)
+    fragment = re.sub(r"(<(td|th)(?:\s[^>]*)?>)(.*?)</\2>", cell_repl, fragment, flags=re.S)
+    return fragment
 
 
 def slugify(value: str) -> str:
@@ -399,7 +488,19 @@ def equivalent_module_name(left: str, right: str) -> bool:
     aliases = {"卖点": "通用卖点", "主图规范": "主图"}
     a = aliases.get(clean_text(left), clean_text(left))
     b = aliases.get(clean_text(right), clean_text(right))
-    return a == b
+    if a == b:
+        return True
+    # 行业文档的缩写/扩写标题：短标↔短标题（互为前缀），
+    # SPU绑定↔自营SPU销售属性绑定（概述名是章节名的子序列）。
+    if len(a) >= 2 and len(b) >= 2 and (a.startswith(b) or b.startswith(a)):
+        return True
+    if len(a) >= 3 and len(b) >= 3:
+        # 概述名是章节名的有序子序列即可（自营SPU销售属性绑定 ⊇ SPU绑定）。
+        # 至少 3 个字，避免「首张主图模块化布局图」这类模块内标题误中「主图」。
+        shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+        it = iter(longer)
+        return all(ch in it for ch in shorter)
+    return False
 
 
 def discover_numbered_module_headings(
@@ -411,12 +512,17 @@ def discover_numbered_module_headings(
     appears as an overview bracket label such as ``【系列品】``.  This preserves
     industry-specific 9+ module documents without reviving the old bug where
     numbered body rules became extra chapters.
+
+    编号也可能只存在于 Word 自动编号（w:numPr）里而文本没有 `N、` 前缀——
+    例如童车规范的 12 个模块标题全部是 numId 编号、文本仅两个字到十个字。
+    因此同样接受 ``list_level == 0`` 且无句子标点的短标题，前提是它仍与某个
+    概述【模块名】等价（见 equivalent_module_name）。
     """
     overview_names: set[str] = set()
     for block in blocks:
         if not isinstance(block, ParagraphBlock) or not block.text:
             continue
-        match = re.match(r"^\s*【([^】]+)】\s*[：:]", block.text)
+        match = re.match(r"^\s*【([^】]+)】\s*[：:]?", block.text)
         if match:
             overview_names.add(clean_text(match.group(1)))
 
@@ -425,9 +531,13 @@ def discover_numbered_module_headings(
         if not isinstance(block, ParagraphBlock) or block.images or not block.text:
             continue
         match = re.match(r"^\s*\d{1,2}[、.．]\s*([^：:，。；！？,;!?]{1,20})\s*$", block.text)
-        if not match:
+        if match:
+            core = clean_text(match.group(1))
+        elif block.list_level == 0 and re.match(r"^[^：:，。；！？,;!?、]{1,20}$", block.text.strip()):
+            # Word 自动编号短标题：编号在 numPr 中，文本本身即模块名。
+            core = clean_text(block.text.strip())
+        else:
             continue
-        core = clean_text(match.group(1))
         if core in SPEC_MODULE_NAMES or any(equivalent_module_name(core, name) for name in overview_names):
             discovered.add(block.text)
     return discovered
@@ -1563,6 +1673,7 @@ def render_html(docx_path: Path, style_path: Path, font_path: Path | None, updat
             section_blocks, doc, blobs, is_intro=is_intro, half_images=half_images,
             video_section=video_section,
         )
+        body = justify_long_text(body)
         if is_intro:
             cards.append(render_card(section_title, body, None))
         else:

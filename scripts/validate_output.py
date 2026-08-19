@@ -332,6 +332,7 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
             if "video-demo" in html_text and (
                 re.search(r"视频播放按钮|播放按钮|主图视频示范|点击查看|点击播放|观看视频|视频入口", text)
                 or re.search(r"https?://", text)
+                or re.search(r"\.(?:mp4|mov|avi|wmv|flv|mkv|webm)\b", text, re.I)
             ):
                 continue
             # 一级模块标题在源文里写成 `N、模块名`，HTML 里按规范去掉 `N、`
