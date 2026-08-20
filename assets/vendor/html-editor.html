@@ -173,6 +173,7 @@ Error generating stack: `+o.message+`
   var changedTimer = null;
   var selectEchoTimer = null;
   var selectEchoEl = null;
+  var tableWidthSession = null;
 
   // ============ 历史栈 ============
   var past = [];
@@ -201,6 +202,7 @@ Error generating stack: `+o.message+`
   /** 在做修改前调用：把当前状态存入 past */
   function beforeChange(label) {
     coalesceKey = null; // 任何其它编辑都会打断"连续取色"的快照合并
+    tableWidthSession = null;
     var html = snapshot();
     if (past.length === 0 || past[past.length - 1] !== html) {
       past.push(html);
@@ -264,6 +266,9 @@ Error generating stack: `+o.message+`
     }
     toolbar = null;
     remarkAll();
+    notifySelect(null);
+    notifySelectMulti();
+    notifyLayerTree();
     if (gridVisible) showGrid();
     notifyHistory();
     notifyChanged();
@@ -322,7 +327,11 @@ Error generating stack: `+o.message+`
   function assignId(el) {
     if (!el || el.nodeType !== 1) return;
     if (!el.getAttribute(ID_ATTR)) {
-      el.setAttribute(ID_ATTR, 'ed-' + (++idCounter));
+      var next;
+      do {
+        next = 'ed-' + (++idCounter);
+      } while (document.body && document.body.querySelector('[' + ID_ATTR + '="' + next + '"]'));
+      el.setAttribute(ID_ATTR, next);
     }
   }
 
@@ -419,6 +428,66 @@ Error generating stack: `+o.message+`
     selectedIds = [];
   }
 
+  /** 选中表格或表格内部任意元素时，定位所属表格。 */
+  function findSelectedTable(el) {
+    if (!el || !el.closest) return null;
+    var table = el.closest('table');
+    return table && document.body && document.body.contains(table) ? table : null;
+  }
+
+  /** 表格组以最近的非表格块级拥有者为边界，避免联动更深层独立容器。 */
+  function findTableOwner(table) {
+    if (!table) return document.body;
+    var cur = table.parentElement;
+    while (cur && cur !== document.body) {
+      var tag = cur.tagName;
+      if (!/^(TABLE|THEAD|TBODY|TFOOT|TR|TD|TH|COLGROUP)$/.test(tag)) {
+        var display = window.getComputedStyle(cur).display;
+        if (/^(block|flex|grid|flow-root|list-item|inline-block)$/.test(display)) return cur;
+      }
+      cur = cur.parentElement;
+    }
+    return document.body;
+  }
+
+  function getTableGroup(table) {
+    var owner = findTableOwner(table);
+    var all = owner ? owner.querySelectorAll('table') : [];
+    var group = [];
+    for (var i = 0; i < all.length; i++) {
+      if (findTableOwner(all[i]) === owner) group.push(all[i]);
+    }
+    return { owner: owner, tables: group };
+  }
+
+  function tableWidthPercent(table, owner) {
+    var inline = String(table.style.width || '').trim();
+    var m = /^([0-9.]+)%$/.exec(inline);
+    if (m) return Math.max(10, Math.min(100, Math.round(parseFloat(m[1]))));
+    var ownerWidth;
+    if (!owner || owner === document.body) {
+      ownerWidth = document.documentElement.clientWidth || document.body.clientWidth;
+    } else {
+      var cs = window.getComputedStyle(owner);
+      ownerWidth = owner.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+    }
+    var width = table.getBoundingClientRect().width;
+    return Math.max(10, Math.min(100, Math.round(ownerWidth > 0 ? width / ownerWidth * 100 : 100)));
+  }
+
+  function buildTableInfo(el) {
+    var table = findSelectedTable(el);
+    if (!table) return undefined;
+    assignId(table);
+    var group = getTableGroup(table);
+    return {
+      tableId: table.getAttribute(ID_ATTR),
+      widthPercent: tableWidthPercent(table, group.owner),
+      groupCount: group.tables.length,
+      editable: true,
+    };
+  }
+
   function buildInfo(el) {
     var path = buildPath(el);
     var rect = el.getBoundingClientRect();
@@ -476,6 +545,7 @@ Error generating stack: `+o.message+`
       lineHeight: lineHeightNum,
       letterSpacing: letterSpacingNum,
       fontFamily: cs.fontFamily,
+      tableInfo: buildTableInfo(el),
       multiCount: selectedIds.length,
       editing: editingId === el.getAttribute(ID_ATTR),
     };
@@ -861,21 +931,50 @@ Error generating stack: `+o.message+`
 
   // ============ DOM 操作（增删移动） ============
 
+  function deleteBlockReason(el) {
+    if (!el || !document.body || !el.isConnected) return '目标元素已不存在';
+    if (el === document.documentElement || el === document.body) return '不能删除整个页面';
+    if (el.hasAttribute && el.hasAttribute('data-ed-injected')) return '不能删除编辑器控件';
+    if (el.parentElement === document.body) {
+      var top = [];
+      var children = document.body.children;
+      for (var i = 0; i < children.length; i++) {
+        if (isEditableTarget(children[i]) && !children[i].hasAttribute('data-ed-injected')) top.push(children[i]);
+      }
+      if (top.length === 1 && top[0] === el && (isContainer(el) || el.children.length > 0)) {
+        return '不能删除页面根容器，请选择内部元素';
+      }
+    }
+    return '';
+  }
+
+  function rejectDelete(reason) {
+    HOST.postMessage({ source: 'ed-editor', type: 'DELETE_REJECTED', payload: { reason: reason } }, '*');
+    return { ok: false, reason: reason };
+  }
+
+  function syncAfterDelete() {
+    hideToolbar();
+    selectedId = null;
+    selectedIds = [];
+    remarkAll();
+    notifySelect(null);
+    notifySelectMulti();
+    notifyLayerTree();
+    notifyChanged();
+  }
+
   function deleteEl(el) {
-    if (!el) return;
-    beforeChange();
+    var reason = deleteBlockReason(el);
+    if (reason) return rejectDelete(reason);
+    beforeChange('删除元素');
     if (el.classList) {
       el.classList.remove('ed-selected');
       el.classList.remove('ed-hover');
     }
-    var sibling = el.nextElementSibling || el.previousElementSibling;
     el.remove();
-    hideToolbar();
-    selectedId = null;
-    notifySelect(null);
-    // 选中相邻元素方便连续操作
-    if (sibling && isEditableTarget(sibling)) selectElement(sibling);
-    notifyChanged();
+    syncAfterDelete();
+    return { ok: true, reason: '' };
   }
 
   function duplicateEl(el) {
@@ -1075,18 +1174,28 @@ Error generating stack: `+o.message+`
   // ============ G14 多选群组操作 ============
   function multiDelete() {
     if (selectedIds.length === 0) return;
-    beforeChange('批量删除');
+    var targets = [];
     for (var i = 0; i < selectedIds.length; i++) {
       var el = findById(selectedIds[i]);
-      if (el) el.remove();
+      if (!el || targets.indexOf(el) >= 0) continue;
+      var reason = deleteBlockReason(el);
+      if (reason) return rejectDelete(reason);
+      targets.push(el);
     }
-    hideToolbar();
-    selectedId = null;
-    selectedIds = [];
-    notifySelect(null);
-    notifySelectMulti(); // 批量删除后隐藏"已选 N 个"悬浮条
-    notifyChanged();
-    notifyLayerTree();
+    if (targets.length === 0) return;
+    targets = targets.filter(function (el) {
+      for (var j = 0; j < targets.length; j++) {
+        if (targets[j] !== el && targets[j].contains(el)) return false;
+      }
+      return true;
+    });
+    beforeChange('批量删除');
+    for (var k = 0; k < targets.length; k++) {
+      targets[k].classList.remove('ed-selected', 'ed-hover');
+      targets[k].remove();
+    }
+    syncAfterDelete();
+    return { ok: true, reason: '' };
   }
   function multiDuplicate() {
     if (selectedIds.length === 0) return;
@@ -1376,8 +1485,55 @@ Error generating stack: `+o.message+`
    *  【修复】被编辑的模板样式表里常带 text-align-last:center（甚至 !important），
    *  只设 text-align 时左/右对齐后"最后一行仍居中"；内联 !important 可压过样式表。 */
   function applyTextAlign(el, align) {
-    el.style.textAlign = align;
-    el.style.setProperty('text-align-last', align, 'important');
+    el.style.setProperty('text-align', align, 'important');
+    el.style.setProperty('text-align-last', align === 'justify' ? 'left' : align, 'important');
+  }
+
+  function applyResponsiveTableStyle(table, width) {
+    table.style.setProperty('width', width + '%');
+    table.style.setProperty('max-width', '100%');
+    table.style.setProperty('box-sizing', 'border-box');
+    table.style.setProperty('table-layout', 'fixed');
+    var cells = table.querySelectorAll('th,td');
+    for (var i = 0; i < cells.length; i++) {
+      cells[i].style.setProperty('min-width', '0');
+      cells[i].style.setProperty('overflow-wrap', 'anywhere');
+      cells[i].style.setProperty('word-break', 'break-word');
+    }
+    var media = table.querySelectorAll('img,video,svg,canvas,iframe');
+    for (var j = 0; j < media.length; j++) {
+      media[j].style.setProperty('max-width', '100%');
+      media[j].style.setProperty('box-sizing', 'border-box');
+      if (media[j].tagName === 'IMG' || media[j].tagName === 'VIDEO') {
+        media[j].style.setProperty('height', 'auto');
+      }
+    }
+  }
+
+  /** 同一拥有者容器内的表格使用相同百分比；拖动期间只保留一个历史快照。 */
+  function setTableWidth(tableId, widthPercent, phase) {
+    var table = findById(tableId);
+    if (!table || table.tagName !== 'TABLE') return;
+    var width = Math.max(10, Math.min(100, Math.round(parseFloat(widthPercent) || 100)));
+    var key = tableId + ':' + findTableOwner(table).getAttribute(ID_ATTR);
+    if (!tableWidthSession || tableWidthSession.key !== key) {
+      beforeChange('表格宽度');
+      tableWidthSession = { key: key };
+    }
+    var group = getTableGroup(table);
+    for (var i = 0; i < group.tables.length; i++) applyResponsiveTableStyle(group.tables[i], width);
+    var main = findById(selectedId);
+    if (main) {
+      if (phase === 'preview' || phase === 'start') notifySelectEcho(main);
+      else notifySelect(buildInfo(main));
+    }
+    if (phase === 'preview' || phase === 'start') {
+      notifyChangedDebounced();
+    } else {
+      if (changedTimer) { clearTimeout(changedTimer); changedTimer = null; }
+      notifyChanged();
+      tableWidthSession = null;
+    }
   }
   /** 切换加粗（bold<->normal） */
   function toggleBold() {
@@ -1693,6 +1849,9 @@ Error generating stack: `+o.message+`
         break;
       case 'SET_TEXT_ALIGN':
         setTextAlign(msg.payload.align);
+        break;
+      case 'SET_TABLE_WIDTH':
+        setTableWidth(msg.payload.tableId, msg.payload.widthPercent, msg.payload.phase);
         break;
       case 'TOGGLE_BOLD':
         toggleBold();
@@ -2065,6 +2224,101 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
     return function(){ swaps.forEach(function(s){ if(s.img.parentNode) s.img.parentNode.removeChild(s.img); s.v.style.display=s.pd; }); };
   }
+
+  function waitFrames(win,count){
+    return new Promise(function(resolve){
+      function next(){ if(count--<=0)return resolve(); win.requestAnimationFrame(next); }
+      next();
+    });
+  }
+  function waitFonts(doc){
+    try{
+      if(doc.fonts&&doc.fonts.ready){
+        return Promise.race([
+          doc.fonts.ready.catch(function(){}),
+          new Promise(function(resolve){setTimeout(resolve,3000);})
+        ]);
+      }
+    }catch(e){}
+    return Promise.resolve();
+  }
+  function waitImages(root){
+    var images=[].slice.call(root.querySelectorAll('img'));
+    if(!images.length)return Promise.resolve();
+    var jobs=images.map(function(img){
+      if(img.decode)return img.decode().catch(function(){});
+      if(img.complete)return Promise.resolve();
+      return new Promise(function(resolve){
+        var done=function(){img.removeEventListener('load',done);img.removeEventListener('error',done);resolve();};
+        img.addEventListener('load',done);img.addEventListener('error',done);
+      });
+    });
+    return Promise.race([
+      Promise.all(jobs),
+      new Promise(function(resolve){setTimeout(resolve,4000);})
+    ]);
+  }
+  function readCaptureSize(poster){
+    var r=poster.getBoundingClientRect();
+    return {
+      width:Math.max(1,Math.ceil(Math.max(r.width,poster.scrollWidth))),
+      height:Math.max(1,Math.ceil(Math.max(r.height,poster.scrollHeight)))
+    };
+  }
+  function waitStableLayout(ifr,poster){
+    var win=ifr.contentWindow, last=null, same=0, checks=0;
+    return new Promise(function(resolve){
+      function check(){
+        var size=readCaptureSize(poster);
+        if(last&&last.width===size.width&&last.height===size.height)same++;else same=0;
+        last=size; checks++;
+        if(same>=1||checks>=6)return resolve(size);
+        win.requestAnimationFrame(check);
+      }
+      win.requestAnimationFrame(check);
+    });
+  }
+  function prepareCapture(ifr,poster){
+    var doc=ifr.contentDocument, win=ifr.contentWindow;
+    return waitFonts(doc)
+      .then(function(){return waitImages(poster);})
+      .then(function(){return waitFrames(win,2);})
+      .then(function(){return waitStableLayout(ifr,poster);});
+  }
+  function capturePoster(ifr,poster,win){
+    var doc=ifr.contentDocument;
+    var zoomStyle=doc.getElementById('ed-zoom-style');
+    var zoomText=zoomStyle?zoomStyle.textContent:'';
+    if(zoomStyle)zoomStyle.textContent='';
+    function restoreZoom(){if(zoomStyle&&zoomStyle.isConnected)zoomStyle.textContent=zoomText;}
+    return prepareCapture(ifr,poster).then(function(size){
+      var s=Math.min(2,Math.max(0.3,32000/size.height));
+      return win.html2canvas(poster,{
+        scale:s,backgroundColor:'#dcedff',useCORS:true,logging:false,
+        width:size.width,height:size.height,windowWidth:size.width,windowHeight:size.height,
+        ignoreElements:function(el){return el.hasAttribute&&el.hasAttribute('data-ed-injected');},
+        onclone:function(d){
+          var zoom=d.getElementById('ed-zoom-style'); if(zoom)zoom.remove();
+          var ns=d.querySelectorAll('.ed-hover,.ed-selected,.ed-editing');
+          for(var i=0;i<ns.length;i++){ns[i].classList.remove('ed-hover','ed-selected','ed-editing');ns[i].removeAttribute('contenteditable');}
+          var clonePoster=d.querySelector('.poster')||d.body;
+          if(clonePoster){
+            clonePoster.style.setProperty('width',size.width+'px','important');
+            clonePoster.style.setProperty('min-height',size.height+'px','important');
+            clonePoster.style.setProperty('box-sizing','border-box','important');
+          }
+          d.documentElement.style.setProperty('width',size.width+'px','important');
+          d.body.style.setProperty('width',size.width+'px','important');
+        }
+      }).then(function(canvas){return {canvas:canvas,scale:s};});
+    }).then(function(result){
+      restoreZoom();
+      return result;
+    },function(error){
+      restoreZoom();
+      throw error;
+    });
+  }
   function exportPng(btn){
     var ifr=findIframe(), poster=getPoster(ifr);
     if(!ifr||!poster){ alert('请先加载或编辑一个页面再导出图片'); return; }
@@ -2075,15 +2329,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     ensureH2C(ifr).then(function(win){
       return flattenHeroOverlay(ifr.contentDocument).then(function(rf){ restore=rf;
         vrestore=swapVideosForPosters(ifr.contentDocument);
-        var h=poster.scrollHeight, s=Math.min(2,Math.max(0.3,32000/h));
-        return win.html2canvas(poster,{scale:s,backgroundColor:'#dcedff',useCORS:true,logging:false,
-          windowWidth:poster.scrollWidth, windowHeight:h,
-          ignoreElements:function(el){ return el.hasAttribute&&el.hasAttribute('data-ed-injected'); },
-          onclone:function(d){ var ns=d.querySelectorAll('.ed-hover,.ed-selected,.ed-editing');
-            for(var i=0;i<ns.length;i++){ ns[i].classList.remove('ed-hover','ed-selected','ed-editing'); ns[i].removeAttribute('contenteditable'); } }
-        });
+        return capturePoster(ifr,poster,win);
       });
-    }).then(function(c){ if(vrestore)vrestore(); if(restore)restore(); download(c, base+'.png'); btn.textContent=label; btn.disabled=false; })
+    }).then(function(result){ if(vrestore)vrestore(); if(restore)restore(); download(result.canvas, base+'.png'); btn.textContent=label; btn.disabled=false; })
       .catch(function(e){ if(vrestore)vrestore(); if(restore)restore(); console.error(e); alert('导出图片失败：'+((e&&e.message)||e)); btn.textContent=label; btn.disabled=false; });
   }
   function makeBtn(){
@@ -2106,6 +2354,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     ensureH2C: ensureH2C,
     flattenHeroOverlay: flattenHeroOverlay,
     swapVideosForPosters: swapVideosForPosters,
+    prepareCapture: prepareCapture,
+    capturePoster: capturePoster,
     findIframe: findIframe,
     getPoster: getPoster,
     download: download
@@ -2293,23 +2543,16 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   function renderFull(){
     var ifr=findIframe(), poster=H().getPoster(ifr);
     if(!ifr||!poster) return Promise.reject(new Error('请先加载或编辑一个页面再切图'));
-    var restore=null, vrestore=null, scaleUsed=1;
+    var restore=null, vrestore=null;
     return H().ensureH2C(ifr).then(function(win){
       return H().flattenHeroOverlay(ifr.contentDocument).then(function(rf){
         restore=rf;
         vrestore=H().swapVideosForPosters(ifr.contentDocument);
-        var h=poster.scrollHeight, s=Math.min(2,Math.max(0.3,32000/h));
-        scaleUsed=s;
-        return win.html2canvas(poster,{scale:s,backgroundColor:'#dcedff',useCORS:true,logging:false,
-          windowWidth:poster.scrollWidth, windowHeight:h,
-          ignoreElements:function(el){ return el.hasAttribute&&el.hasAttribute('data-ed-injected'); },
-          onclone:function(d){ var ns=d.querySelectorAll('.ed-hover,.ed-selected,.ed-editing');
-            for(var i=0;i<ns.length;i++){ ns[i].classList.remove('ed-hover','ed-selected','ed-editing'); ns[i].removeAttribute('contenteditable'); } }
-        });
+        return H().capturePoster(ifr,poster,win);
       });
-    }).then(function(c){
+    }).then(function(result){
       if(vrestore)vrestore(); if(restore)restore();
-      return { canvas: c, scale: scaleUsed };
+      return { canvas: result.canvas, scale: result.scale };
     }, function(e){ if(vrestore)vrestore(); if(restore)restore(); throw e; });
   }
 
@@ -2646,6 +2889,112 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   function ensureToolbarRight() {
     return document.querySelector('.toolbar-right');
   }
+
+  // ============ 表格宽度属性区 / 对齐提示 ============
+  var latestTableInfo = null;
+  function sendTableWidth(value, phase) {
+    if (!latestTableInfo) return;
+    postToIframe({
+      source: 'ed-host',
+      type: 'SET_TABLE_WIDTH',
+      payload: {
+        tableId: latestTableInfo.tableId,
+        widthPercent: value,
+        phase: phase || 'commit',
+      },
+    });
+  }
+  function ensureTextAlignTitle() {
+    var rows = document.querySelectorAll('.property-panel .style-row');
+    for (var i = 0; i < rows.length; i++) {
+      var label = rows[i].querySelector('.style-label');
+      if (!label || label.textContent.trim() !== '对齐') continue;
+      var buttons = rows[i].querySelectorAll('button');
+      if (buttons.length >= 4) {
+        buttons[3].title = '两端对齐，最后一行左对齐';
+        buttons[3].setAttribute('aria-label', '两端对齐，最后一行左对齐');
+      }
+    }
+  }
+  function ensureTableWidthPanel() {
+    var old = document.getElementById('ed-table-width-panel');
+    var panel = document.querySelector('.property-panel');
+    if (!panel || !latestTableInfo || latestTableInfo.editable === false) {
+      if (old) old.remove();
+      return;
+    }
+    var width = Math.max(10, Math.min(100, parseInt(latestTableInfo.widthPercent, 10) || 100));
+    if (old) {
+      var oldRange = old.querySelector('input[type="range"]');
+      var oldNum = old.querySelector('input[type="number"]');
+      var oldHint = old.querySelector('.ed-table-width-hint');
+      if (oldRange && document.activeElement !== oldRange) oldRange.value = width;
+      if (oldNum && document.activeElement !== oldNum) oldNum.value = width;
+      var hintText = '同步 ' + latestTableInfo.groupCount + ' 个同容器表格';
+      if (oldHint && oldHint.textContent !== hintText) oldHint.textContent = hintText;
+      return;
+    }
+    var section = document.createElement('div');
+    section.id = 'ed-table-width-panel';
+    section.className = 'panel-section';
+    var title = document.createElement('h4');
+    title.textContent = '表格尺寸';
+    var row = document.createElement('div');
+    row.className = 'style-row';
+    var label = document.createElement('span');
+    label.className = 'style-label';
+    label.textContent = '宽度';
+    var ctrl = document.createElement('div');
+    ctrl.style.cssText = 'display:grid;grid-template-columns:minmax(80px,1fr) 62px 16px;gap:6px;align-items:center;flex:1';
+    var range = document.createElement('input');
+    range.type = 'range'; range.min = '10'; range.max = '100'; range.step = '1'; range.value = width;
+    range.title = '表格宽度百分比';
+    var num = document.createElement('input');
+    num.type = 'number'; num.min = '10'; num.max = '100'; num.step = '1'; num.value = width;
+    num.className = 'input';
+    num.style.cssText = 'width:62px;padding:5px 6px';
+    var unit = document.createElement('span');
+    unit.textContent = '%';
+    var hint = document.createElement('div');
+    hint.className = 'ed-table-width-hint';
+    hint.style.cssText = 'margin:7px 0 0 72px;color:var(--text-secondary);font-size:11px';
+    hint.textContent = '同步 ' + latestTableInfo.groupCount + ' 个同容器表格';
+    var started = false;
+    range.addEventListener('input', function () {
+      num.value = range.value;
+      sendTableWidth(range.value, started ? 'preview' : 'start');
+      started = true;
+    });
+    range.addEventListener('change', function () {
+      sendTableWidth(range.value, 'commit');
+      started = false;
+    });
+    num.addEventListener('change', function () {
+      var value = Math.max(10, Math.min(100, parseInt(num.value, 10) || 100));
+      num.value = value; range.value = value;
+      sendTableWidth(value, 'commit');
+    });
+    ctrl.appendChild(range); ctrl.appendChild(num); ctrl.appendChild(unit);
+    row.appendChild(label); row.appendChild(ctrl);
+    section.appendChild(title); section.appendChild(row); section.appendChild(hint);
+    var firstSection = panel.querySelector('.panel-section');
+    if (firstSection && firstSection.nextSibling) panel.insertBefore(section, firstSection.nextSibling);
+    else panel.appendChild(section);
+  }
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (!d || d.source !== 'ed-editor') return;
+    if (d.type === 'SELECT') {
+      latestTableInfo = d.payload && d.payload.tableInfo ? d.payload.tableInfo : null;
+      ensureTableWidthPanel();
+    } else if (d.type === 'READY') {
+      latestTableInfo = null;
+      ensureTableWidthPanel();
+    } else if (d.type === 'DELETE_REJECTED') {
+      alert((d.payload && d.payload.reason) || '该元素不能删除');
+    }
+  });
+
   // 创建弹窗（模态）
   function openModal(title, bodyNode, opts) {
     opts = opts || {};
@@ -3246,6 +3595,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
   // ============ 初始化 ============
   function start() {
+    ensureTextAlignTitle();
+    ensureTableWidthPanel();
     ensureGridBtn();
     ensureHistoryBtn();
     ensureLibraryBtn();
@@ -3258,14 +3609,23 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     ensureOverlayBtn();
   }
   // 持续保证按钮存在（工具栏是 React 动态渲染的）
-  var looping = false;
-  function loop() {
-    if (looping) return;
-    looping = true;
-    try { if (ensureToolbarRight()) start(); } finally { looping = false; }
+  var loopScheduled = false;
+  var enhancementObserver = null;
+  function observeEnhancements() {
+    enhancementObserver.observe(document.body, { childList: true, subtree: true });
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { start(); new MutationObserver(loop).observe(document.body, { childList: true, subtree: true }); });
-  else { start(); new MutationObserver(loop).observe(document.body, { childList: true, subtree: true }); }
+  function loop() {
+    if (loopScheduled) return;
+    loopScheduled = true;
+    requestAnimationFrame(function () {
+      loopScheduled = false;
+      enhancementObserver.disconnect();
+      try { if (ensureToolbarRight()) start(); } finally { observeEnhancements(); }
+    });
+  }
+  enhancementObserver = new MutationObserver(loop);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { start(); observeEnhancements(); });
+  else { start(); observeEnhancements(); }
 })();
 </script>
 
