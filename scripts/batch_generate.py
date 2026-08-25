@@ -30,7 +30,25 @@ DEFAULT_FONT = SKILL_ROOT / "assets" / "fonts" / "JINGDONGLangZhengTi1-Bold.woff
 DEFAULT_H2C = SKILL_ROOT / "assets" / "vendor" / "html2canvas.min.js"
 DEFAULT_EDITOR = SKILL_ROOT / "assets" / "vendor" / "html-editor.html"
 GENERATOR_CSS_MARKER = "/* ===== Generic DOCX generator additions ===== */"
-SKILL_RELEASE = "2026.08.19-r15"
+SKILL_RELEASE = "2026.08.25-r16"
+
+
+# Editorial boilerplate removed from every source: the 【官方建议】 title marker,
+# the '官方建议'诠释：… block, and the 适用类目范围：… block. Each block runs from
+# its label to the end of that paragraph; documents without these markers are
+# left untouched.
+ADVICE_TITLE_MARK = "【官方建议】"
+ADVICE_BLOCK_RE = re.compile(r"['\"“”‘’]?官方建议['\"“”‘’]?诠释\s*[：:]")
+SCOPE_BLOCK_RE = re.compile(r"适用类目范围\s*[：:]")
+
+
+def strip_advice_boilerplate(value: str) -> str:
+    text = clean_text(value).replace(ADVICE_TITLE_MARK, "")
+    for pattern in (ADVICE_BLOCK_RE, SCOPE_BLOCK_RE):
+        match = pattern.search(text)
+        if match:
+            text = text[: match.start()]
+    return clean_text(text)
 
 
 @dataclass
@@ -175,7 +193,7 @@ def iter_blocks(doc: DocumentObject) -> list[ParagraphBlock | TableBlock]:
     for child in doc.element.body.iterchildren():
         if isinstance(child, CT_P):
             paragraph = Paragraph(child, doc)
-            text = clean_text(paragraph.text)
+            text = strip_advice_boilerplate(paragraph.text)
             images = paragraph_images(doc, paragraph)
             if text or images:
                 blocks.append(ParagraphBlock(
@@ -419,7 +437,7 @@ def render_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes], ext
                     break
                 rowspan_count += 1
 
-            texts = [clean_text(p.text) for p in cell.paragraphs if clean_text(p.text)]
+            texts = [strip_advice_boilerplate(p.text) for p in cell.paragraphs if strip_advice_boilerplate(p.text)]
             image_html = []
             for paragraph in cell.paragraphs:
                 for target in paragraph_images(doc, paragraph):
@@ -1060,14 +1078,14 @@ def compare_matrix(table: Table, doc: DocumentObject, blobs: dict[str, bytes]) -
             left_text = clean_text(row.cells[2].text)
             right_text = clean_text(row.cells[3].text)
             if case_text == "优化总结" and left_text and left_text == right_text:
-                paragraphs = [clean_text(p.text) for p in row.cells[2].paragraphs if clean_text(p.text)]
+                paragraphs = [strip_advice_boilerplate(p.text) for p in row.cells[2].paragraphs if strip_advice_boilerplate(p.text)]
                 content = "".join(f"<p>{esc(text)}</p>" for text in paragraphs)
                 cells.append(f'<td class="cm-text" colspan="2">{content}</td>')
             else:
                 for column in (2, 3):
                     cell = row.cells[column]
                     targets = cell_image_targets(cell, doc, blobs)
-                    texts = [clean_text(p.text) for p in cell.paragraphs if clean_text(p.text)]
+                    texts = [strip_advice_boilerplate(p.text) for p in cell.paragraphs if strip_advice_boilerplate(p.text)]
                     classes = "cm-img" if targets else "cm-text"
                     content = "".join(
                         f'<div class="image-holder">{image_tag(target, blobs, headers[column])}</div>'

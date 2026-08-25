@@ -13,6 +13,7 @@ Convert Word specification documents into polished 1280px single-file HTML pages
 - Never deliver raw `batch_generate.py` output as production work. It is extraction scaffolding only.
 - Use the companion PDF's numbered first-level modules in their exact source order and count. Cross-check numbered headings against overview labels such as `【系列品】` so industry-specific 9+ module documents remain complete without promoting numbered body rules. The body-care profile still requires its established eight-module sequence: `主图规范` / `主图视频` / `长标题` / `短标题` / `通用卖点` / `主推标签` / `品质标签` / `属性`.
 - Strip the source `N、` prefix from module titles because the card already carries `01`–`08`. Never promote numbered body items or unnumbered phrases into extra chapters.
+- Remove editorial boilerplate from the source before rendering: strip `【官方建议】` from any title or heading, delete the entire `'官方建议'诠释：…` block (label plus the paragraph that follows the colon), and delete the entire `适用类目范围：…` block (label plus its paragraph). When the document contains none of these markers, leave the content untouched.
 - Preserve every visible text occurrence, image occurrence, table relationship, and source block order. Hierarchy reconstruction may change grouping and styling, never reading order.
 
 ## Resource routing

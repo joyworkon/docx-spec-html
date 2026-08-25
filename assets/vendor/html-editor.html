@@ -66,11 +66,6 @@ Error generating stack: `+o.message+`
   outline-offset: 1px !important;
 }
 
-/* 表格逻辑列多选态 */
-.ed-table-column-selected {
-  box-shadow: inset 0 0 0 2px rgba(22, 93, 255, 0.55) !important;
-}
-
 /* contenteditable 编辑态 */
 .ed-editing {
   outline: 2px solid #00b42a !important;
@@ -140,71 +135,6 @@ Error generating stack: `+o.message+`
   white-space: nowrap !important;
 }
 
-.ed-resize-handle {
-  position: absolute !important;
-  z-index: 2147483645 !important;
-  width: 10px !important;
-  height: 10px !important;
-  box-sizing: border-box !important;
-  border: 2px solid #fff !important;
-  border-radius: 50% !important;
-  background: var(--ed-accent, #165dff) !important;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, .35) !important;
-  pointer-events: auto !important;
-  touch-action: none !important;
-}
-.ed-resize-handle[data-dir="n"],
-.ed-resize-handle[data-dir="s"] { cursor: ns-resize !important; }
-.ed-resize-handle[data-dir="e"],
-.ed-resize-handle[data-dir="w"] { cursor: ew-resize !important; }
-.ed-resize-handle[data-dir="ne"],
-.ed-resize-handle[data-dir="sw"] { cursor: nesw-resize !important; }
-.ed-resize-handle[data-dir="nw"],
-.ed-resize-handle[data-dir="se"] { cursor: nwse-resize !important; }
-
-.ed-resize-guide {
-  position: fixed !important;
-  z-index: 2147483646 !important;
-  background: #f53f3f !important;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, .55) !important;
-  pointer-events: none !important;
-}
-.ed-resize-guide[data-axis="x"] { width: 1px !important; }
-.ed-resize-guide[data-axis="y"] { height: 1px !important; }
-
-.ed-flow-drag-preview {
-  position: fixed !important;
-  z-index: 2147483644 !important;
-  margin: 0 !important;
-  opacity: .82 !important;
-  pointer-events: none !important;
-  box-sizing: border-box !important;
-  overflow: hidden !important;
-  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, .24)) !important;
-}
-.ed-flow-source-hidden {
-  position: fixed !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
-}
-.ed-flow-drop-placeholder {
-  box-sizing: border-box !important;
-  min-width: 12px !important;
-  min-height: 12px !important;
-  background: rgba(22, 93, 255, .10) !important;
-  outline: 2px dashed var(--ed-accent, #165dff) !important;
-  outline-offset: -2px !important;
-  pointer-events: none !important;
-}
-.ed-flow-guide {
-  position: fixed !important;
-  z-index: 2147483646 !important;
-  background: #f53f3f !important;
-  pointer-events: none !important;
-}
-.ed-flow-guide[data-axis="x"] { width: 1px !important; }
-.ed-flow-guide[data-axis="y"] { height: 1px !important; }
-
 /* 右键菜单由父窗口 React 管理，iframe 内不再注入遮罩层 */
 
 /* 空白占位提示 */
@@ -243,21 +173,11 @@ Error generating stack: `+o.message+`
   var changedTimer = null;
   var selectEchoTimer = null;
   var selectEchoEl = null;
-  var tableColumnWidthSession = null;
-  var tableColumnSelection = null;
-  var TABLE_LOCK_ATTR = 'data-ed-locked-columns';
-  var cachedTextRange = null;
-  var resizeHandles = [];
-  var resizeSession = null;
-  var layoutSpacingSession = null;
-  var flowDragCandidate = null;
-  var flowDragSession = null;
-  var suppressFlowClickUntil = 0;
 
   // ============ 历史栈 ============
   var past = [];
   var future = [];
-  var historyLabels = []; // 与 past 对齐的标签
+  var historyLabels = ['初始状态']; // 与 past 对齐的标签（past[0] 的"来源"标签）
 
   function snapshot() {
     return document.body ? document.body.innerHTML : '';
@@ -281,8 +201,6 @@ Error generating stack: `+o.message+`
   /** 在做修改前调用：把当前状态存入 past */
   function beforeChange(label) {
     coalesceKey = null; // 任何其它编辑都会打断"连续取色"的快照合并
-    tableColumnWidthSession = null;
-    layoutSpacingSession = null;
     var html = snapshot();
     if (past.length === 0 || past[past.length - 1] !== html) {
       past.push(html);
@@ -336,13 +254,6 @@ Error generating stack: `+o.message+`
   }
 
   function restore(html) {
-    clearCachedTextRange();
-    cancelFlowDrag();
-    tableColumnWidthSession = null;
-    layoutSpacingSession = null;
-    clearResizeGuides(resizeSession);
-    resizeSession = null;
-    removeResizeHandles();
     deselectAll();
     if (document.body) {
       document.body.innerHTML = html;
@@ -350,23 +261,9 @@ Error generating stack: `+o.message+`
       // 避免与 ensureToolbar 重建的工具条叠加重复
       var injected = document.body.querySelectorAll('[data-ed-injected]');
       for (var i = 0; i < injected.length; i++) injected[i].remove();
-      var staleEditing = document.body.querySelectorAll(
-        '.ed-hover,.ed-selected,.ed-editing,.ed-table-column-selected,[contenteditable="true"]');
-      for (var j = 0; j < staleEditing.length; j++) {
-        staleEditing[j].classList.remove(
-          'ed-hover', 'ed-selected', 'ed-editing', 'ed-table-column-selected');
-        if (staleEditing[j].getAttribute('contenteditable') === 'true') {
-          staleEditing[j].removeAttribute('contenteditable');
-        }
-        if (staleEditing[j].getAttribute('class') === '') staleEditing[j].removeAttribute('class');
-      }
     }
     toolbar = null;
-    resizeHandles = [];
     remarkAll();
-    notifySelect(null);
-    notifySelectMulti();
-    notifyLayerTree();
     if (gridVisible) showGrid();
     notifyHistory();
     notifyChanged();
@@ -425,11 +322,7 @@ Error generating stack: `+o.message+`
   function assignId(el) {
     if (!el || el.nodeType !== 1) return;
     if (!el.getAttribute(ID_ATTR)) {
-      var next;
-      do {
-        next = 'ed-' + (++idCounter);
-      } while (document.body && document.body.querySelector('[' + ID_ATTR + '="' + next + '"]'));
-      el.setAttribute(ID_ATTR, next);
+      el.setAttribute(ID_ATTR, 'ed-' + (++idCounter));
     }
   }
 
@@ -439,367 +332,11 @@ Error generating stack: `+o.message+`
     if (!document.body) return;
     var all = document.body.querySelectorAll('*');
     for (var i = 0; i < all.length; i++) assignId(all[i]);
-    var tables = document.body.querySelectorAll('table');
-    for (var t = 0; t < tables.length; t++) {
-      sanitizeLockedColumnIndexes(tables[t], buildTableGrid(tables[t]).columnCount, true);
-    }
   }
 
   function findById(id) {
     if (!id) return null;
     return document.body ? document.body.querySelector('[' + ID_ATTR + '="' + id + '"]') : null;
-  }
-
-  function removeResizeHandles() {
-    for (var i = 0; i < resizeHandles.length; i++) {
-      if (resizeHandles[i] && resizeHandles[i].parentNode) resizeHandles[i].remove();
-    }
-    resizeHandles = [];
-  }
-
-  function positionResizeHandles(el) {
-    if (!el || !resizeHandles.length) return;
-    var rect = el.getBoundingClientRect();
-    var points = {
-      n: [rect.left + rect.width / 2, rect.top],
-      ne: [rect.right, rect.top],
-      e: [rect.right, rect.top + rect.height / 2],
-      se: [rect.right, rect.bottom],
-      s: [rect.left + rect.width / 2, rect.bottom],
-      sw: [rect.left, rect.bottom],
-      w: [rect.left, rect.top + rect.height / 2],
-      nw: [rect.left, rect.top],
-    };
-    for (var i = 0; i < resizeHandles.length; i++) {
-      var handle = resizeHandles[i];
-      var point = points[handle.getAttribute('data-dir')];
-      handle.style.left = (point[0] + window.scrollX - 5) + 'px';
-      handle.style.top = (point[1] + window.scrollY - 5) + 'px';
-    }
-  }
-
-  function parentContentWidth(el) {
-    var parent = el && el.parentElement;
-    if (!parent) return 0;
-    if (getComputedStyle(el).position === 'absolute') {
-      return Math.max(0, parent.clientWidth);
-    }
-    var cs = getComputedStyle(parent);
-    return Math.max(0, parent.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0));
-  }
-
-  function makeContainerContentResponsive(el) {
-    el.style.boxSizing = 'border-box';
-    el.style.overflowWrap = 'anywhere';
-    el.style.wordBreak = 'break-word';
-    var media = el.querySelectorAll('img,video,canvas,svg');
-    for (var i = 0; i < media.length; i++) {
-      media[i].style.maxWidth = '100%';
-      if (media[i].tagName === 'IMG' || media[i].tagName === 'VIDEO') media[i].style.height = 'auto';
-    }
-  }
-
-  function resizeStyleSnapshot(el) {
-    var media = el.querySelectorAll('img,video,canvas,svg');
-    var mediaStyles = [];
-    for (var i = 0; i < media.length; i++) {
-      mediaStyles.push({ el: media[i], style: media[i].getAttribute('style') });
-    }
-    return { style: el.getAttribute('style'), mediaStyles: mediaStyles };
-  }
-
-  function restoreResizeStyles(session) {
-    if (!session || !session.el) return;
-    if (session.originalStyles.style == null) session.el.removeAttribute('style');
-    else session.el.setAttribute('style', session.originalStyles.style);
-    for (var i = 0; i < session.originalStyles.mediaStyles.length; i++) {
-      var item = session.originalStyles.mediaStyles[i];
-      if (!item.el || !item.el.isConnected) continue;
-      if (item.style == null) item.el.removeAttribute('style');
-      else item.el.setAttribute('style', item.style);
-    }
-  }
-
-  function commitResizeHistory(session) {
-    if (past.length === 0 || past[past.length - 1] !== session.beforeHtml) {
-      past.push(session.beforeHtml);
-      historyLabels.push('调整容器尺寸');
-      if (past.length > HISTORY_LIMIT) { past.shift(); historyLabels.shift(); }
-    }
-    future = [];
-    notifyHistory();
-  }
-
-  function clearResizeGuides(session) {
-    if (!session) return;
-    if (session.xGuide) session.xGuide.remove();
-    if (session.yGuide) session.yGuide.remove();
-    session.xGuide = null;
-    session.yGuide = null;
-  }
-
-  function createResizeGuide(axis) {
-    var guide = document.createElement('div');
-    guide.className = 'ed-resize-guide';
-    guide.setAttribute('data-axis', axis);
-    guide.setAttribute('data-ed-injected', '1');
-    (document.body || document.documentElement).appendChild(guide);
-    return guide;
-  }
-
-  function positionResizeGuide(session, axis, snap) {
-    var prop = axis === 'x' ? 'xGuide' : 'yGuide';
-    if (!snap) {
-      if (session[prop]) session[prop].style.display = 'none';
-      return;
-    }
-    if (!session[prop]) session[prop] = createResizeGuide(axis);
-    var guide = session[prop];
-    guide.style.display = 'block';
-    if (axis === 'x') {
-      guide.style.left = Math.round(snap.pos) + 'px';
-      guide.style.top = Math.round(snap.start) + 'px';
-      guide.style.height = Math.max(1, Math.round(snap.end - snap.start)) + 'px';
-    } else {
-      guide.style.left = Math.round(snap.start) + 'px';
-      guide.style.top = Math.round(snap.pos) + 'px';
-      guide.style.width = Math.max(1, Math.round(snap.end - snap.start)) + 'px';
-    }
-  }
-
-  function resizeContentRect(el) {
-    var rect = el.getBoundingClientRect();
-    var cs = getComputedStyle(el);
-    var scale = zoomLevel || 1;
-    return {
-      left: rect.left + (parseFloat(cs.paddingLeft) || 0) * scale,
-      right: rect.right - (parseFloat(cs.paddingRight) || 0) * scale,
-      top: rect.top + (parseFloat(cs.paddingTop) || 0) * scale,
-      bottom: rect.bottom - (parseFloat(cs.paddingBottom) || 0) * scale
-    };
-  }
-
-  function resizeSnapCandidates(el) {
-    var parent = el.parentElement;
-    var x = [];
-    var y = [];
-    if (!parent) return { x: x, y: y };
-    var content = resizeContentRect(parent);
-    x.push({ pos: content.left, start: content.top, end: content.bottom });
-    x.push({ pos: content.right, start: content.top, end: content.bottom });
-    y.push({ pos: content.top, start: content.left, end: content.right });
-    y.push({ pos: content.bottom, start: content.left, end: content.right });
-    var siblings = parent.children;
-    for (var i = 0; i < siblings.length; i++) {
-      var sibling = siblings[i];
-      if (sibling === el || sibling.hasAttribute('data-ed-injected')) continue;
-      var rect = sibling.getBoundingClientRect();
-      if (!rect.width && !rect.height) continue;
-      x.push({ pos: rect.left, start: rect.top, end: rect.bottom });
-      x.push({ pos: rect.left + rect.width / 2, start: rect.top, end: rect.bottom });
-      x.push({ pos: rect.right, start: rect.top, end: rect.bottom });
-      y.push({ pos: rect.top, start: rect.left, end: rect.right });
-      y.push({ pos: rect.top + rect.height / 2, start: rect.left, end: rect.right });
-      y.push({ pos: rect.bottom, start: rect.left, end: rect.right });
-    }
-    return { x: x, y: y };
-  }
-
-  function closestResizeSnap(value, candidates, targetStart, targetEnd) {
-    var closest = null;
-    var distance = 7;
-    for (var i = 0; i < candidates.length; i++) {
-      var currentDistance = Math.abs(value - candidates[i].pos);
-      if (currentDistance > 6 || currentDistance >= distance) continue;
-      distance = currentDistance;
-      closest = {
-        pos: candidates[i].pos,
-        start: Math.min(candidates[i].start, targetStart),
-        end: Math.max(candidates[i].end, targetEnd)
-      };
-    }
-    return closest;
-  }
-
-  function beginResize(event, direction) {
-    var el = findById(selectedId);
-    if (!el || !isContainer(el)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    var rect = el.getBoundingClientRect();
-    var cs = getComputedStyle(el);
-    var scale = zoomLevel || 1;
-    var snapCandidates = resizeSnapCandidates(el);
-    resizeSession = {
-      el: el,
-      id: selectedId,
-      direction: direction,
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      startWidth: rect.width / scale,
-      startHeight: rect.height / scale,
-      startRect: {
-        left: rect.left,
-        right: rect.right,
-        top: rect.top,
-        bottom: rect.bottom
-      },
-      parentWidth: parentContentWidth(el),
-      startMarginLeft: parseFloat(cs.marginLeft) || 0,
-      startMarginTop: parseFloat(cs.marginTop) || 0,
-      snapX: snapCandidates.x,
-      snapY: snapCandidates.y,
-      xGuide: null,
-      yGuide: null,
-      beforeHtml: snapshot(),
-      originalStyles: resizeStyleSnapshot(el),
-      changed: false,
-    };
-  }
-
-  function previewResize(event) {
-    if (!resizeSession || (event.pointerId != null && event.pointerId !== resizeSession.pointerId)) return;
-    var el = findById(resizeSession.id);
-    if (!el || !el.isConnected) {
-      var invalidSession = resizeSession;
-      clearResizeGuides(invalidSession);
-      resizeSession = null;
-      restoreResizeStyles(invalidSession);
-      return;
-    }
-    var dx = event.clientX - resizeSession.startX;
-    var dy = event.clientY - resizeSession.startY;
-    var direction = resizeSession.direction;
-    var scale = zoomLevel || 1;
-    var horizontal = direction.indexOf('e') >= 0 || direction.indexOf('w') >= 0;
-    var vertical = direction.indexOf('n') >= 0 || direction.indexOf('s') >= 0;
-    var activeX = direction.indexOf('w') >= 0
-      ? resizeSession.startRect.left + dx
-      : resizeSession.startRect.right + dx;
-    var activeY = direction.indexOf('n') >= 0
-      ? resizeSession.startRect.top + dy
-      : resizeSession.startRect.bottom + dy;
-    var xSnap = horizontal
-      ? closestResizeSnap(activeX, resizeSession.snapX,
-          resizeSession.startRect.top, resizeSession.startRect.bottom)
-      : null;
-    var ySnap = vertical
-      ? closestResizeSnap(activeY, resizeSession.snapY,
-          resizeSession.startRect.left, resizeSession.startRect.right)
-      : null;
-    if (xSnap) activeX = xSnap.pos;
-    if (ySnap) activeY = ySnap.pos;
-    var nextWidth = resizeSession.startWidth;
-    var nextHeight = resizeSession.startHeight;
-    if (horizontal) {
-      nextWidth = direction.indexOf('w') >= 0
-        ? resizeSession.startWidth + (resizeSession.startRect.left - activeX) / scale
-        : resizeSession.startWidth + (activeX - resizeSession.startRect.right) / scale;
-      nextWidth = Math.max(40, nextWidth);
-      if (resizeSession.parentWidth > 0) nextWidth = Math.min(nextWidth, resizeSession.parentWidth);
-    }
-    if (vertical) {
-      nextHeight = direction.indexOf('n') >= 0
-        ? resizeSession.startHeight + (resizeSession.startRect.top - activeY) / scale
-        : resizeSession.startHeight + (activeY - resizeSession.startRect.bottom) / scale;
-      nextHeight = Math.max(24, nextHeight);
-    }
-    var widthChanged = horizontal && Math.abs(nextWidth - resizeSession.startWidth) >= 0.01;
-    var heightChanged = vertical && Math.abs(nextHeight - resizeSession.startHeight) >= 0.01;
-    restoreResizeStyles(resizeSession);
-    resizeSession.changed = widthChanged || heightChanged;
-    if (!resizeSession.changed) {
-      positionResizeGuide(resizeSession, 'x', null);
-      positionResizeGuide(resizeSession, 'y', null);
-      positionResizeHandles(el);
-      return;
-    }
-    makeContainerContentResponsive(el);
-    if (widthChanged) {
-      if (resizeSession.parentWidth > 0) {
-        el.style.width = Math.round(nextWidth / resizeSession.parentWidth * 10000) / 100 + '%';
-      } else {
-        el.style.width = Math.round(nextWidth) + 'px';
-      }
-      if (direction.indexOf('w') >= 0) {
-        var appliedX = resizeSession.startWidth - nextWidth;
-        el.style.marginLeft = Math.round((resizeSession.startMarginLeft + appliedX) * 100) / 100 + 'px';
-      }
-    }
-    if (heightChanged) {
-      el.style.minHeight = Math.round(nextHeight) + 'px';
-      if (direction.indexOf('n') >= 0) {
-        var appliedY = resizeSession.startHeight - nextHeight;
-        el.style.marginTop = Math.round((resizeSession.startMarginTop + appliedY) * 100) / 100 + 'px';
-      }
-    }
-    var actualRect = el.getBoundingClientRect();
-    if (xSnap) {
-      var actualX = direction.indexOf('w') >= 0 ? actualRect.left : actualRect.right;
-      if (Math.abs(actualX - xSnap.pos) > 1) xSnap = null;
-      else {
-        xSnap.start = Math.min(xSnap.start, actualRect.top);
-        xSnap.end = Math.max(xSnap.end, actualRect.bottom);
-      }
-    }
-    if (ySnap) {
-      var actualY = direction.indexOf('n') >= 0 ? actualRect.top : actualRect.bottom;
-      if (Math.abs(actualY - ySnap.pos) > 1) ySnap = null;
-      else {
-        ySnap.start = Math.min(ySnap.start, actualRect.left);
-        ySnap.end = Math.max(ySnap.end, actualRect.right);
-      }
-    }
-    positionResizeGuide(resizeSession, 'x', xSnap);
-    positionResizeGuide(resizeSession, 'y', ySnap);
-    positionResizeHandles(el);
-  }
-
-  function finishResize(event) {
-    if (!resizeSession || (event.pointerId != null && event.pointerId !== resizeSession.pointerId)) return;
-    var session = resizeSession;
-    var el = findById(resizeSession.id);
-    clearResizeGuides(session);
-    resizeSession = null;
-    if (!el) return;
-    positionResizeHandles(el);
-    if (!session.changed) {
-      restoreResizeStyles(session);
-      return;
-    }
-    commitResizeHistory(session);
-    notifySelect(buildInfo(el));
-    notifyChanged();
-  }
-
-  function cancelResize(event) {
-    if (!resizeSession || (event && event.pointerId != null &&
-        event.pointerId !== resizeSession.pointerId)) return;
-    var session = resizeSession;
-    var el = findById(session.id);
-    clearResizeGuides(session);
-    resizeSession = null;
-    restoreResizeStyles(session);
-    if (el) positionResizeHandles(el);
-  }
-
-  function showResizeHandles(el) {
-    removeResizeHandles();
-    if (!el || !isContainer(el) || el === document.body) return;
-    var directions = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'];
-    for (var i = 0; i < directions.length; i++) {
-      var handle = document.createElement('div');
-      handle.className = 'ed-resize-handle';
-      handle.setAttribute('data-ed-injected', '1');
-      handle.setAttribute('data-dir', directions[i]);
-      handle.addEventListener('pointerdown', (function (dir) {
-        return function (event) { beginResize(event, dir); };
-      })(directions[i]));
-      document.body.appendChild(handle);
-      resizeHandles.push(handle);
-    }
-    positionResizeHandles(el);
   }
 
   // ============ 选取逻辑 ============
@@ -839,9 +376,7 @@ Error generating stack: `+o.message+`
     selectedId = el.getAttribute(ID_ATTR);
     selectedIds = [selectedId];
     el.classList.add('ed-selected');
-    replaceTableColumnSelection(el);
     showToolbar(el);
-    showResizeHandles(el);
     notifySelect(buildInfo(el));
     notifySelectMulti(); // 同步多选数量（1），退出多选状态
     notifyLayerTree();
@@ -850,7 +385,6 @@ Error generating stack: `+o.message+`
   /** 多选切换（Shift+点击时调用）：在已有选区中增删一个元素 */
   function toggleSelect(el) {
     if (!el || !isEditableTarget(el)) return;
-    if (!findSelectedTableCell(el)) clearTableColumnSelection();
     assignId(el);
     var id = el.getAttribute(ID_ATTR);
     var pos = selectedIds.indexOf(id);
@@ -869,320 +403,20 @@ Error generating stack: `+o.message+`
     }
     if (selectedId) {
       var main = findById(selectedId);
-      if (main) { showToolbar(main); showResizeHandles(main); notifySelect(buildInfo(main)); }
+      if (main) { showToolbar(main); notifySelect(buildInfo(main)); }
     } else {
       hideToolbar();
-      removeResizeHandles();
       notifySelect(null);
     }
     notifySelectMulti();
   }
 
   function deselectAll() {
-    if (editingId) stopEditing(false); // 切换选择时提交编辑；仅 Escape 取消
+    if (editingId) stopEditing(true); // 取消正在编辑
     var prev = document.body ? document.body.querySelectorAll('.ed-selected') : [];
     for (var i = 0; i < prev.length; i++) prev[i].classList.remove('ed-selected');
     selectedId = null;
     selectedIds = [];
-    clearTableColumnSelection();
-    removeResizeHandles();
-  }
-
-  /** 选中单元格或单元格内部任意元素时，定位所属表格。 */
-  function findSelectedTable(el) {
-    if (!el || !el.closest) return null;
-    var table = el.closest('table');
-    return table && document.body && document.body.contains(table) ? table : null;
-  }
-
-  function findSelectedTableCell(el) {
-    if (!el || !el.closest) return null;
-    var cell = el.closest('td,th');
-    var table = findSelectedTable(el);
-    return cell && table && cell.closest('table') === table ? cell : null;
-  }
-
-  /** 构建逻辑列网格，避免 rowspan / colspan 导致列索引错位。 */
-  function buildTableGrid(table) {
-    var grid = [];
-    var placements = [];
-    var columnCount = 0;
-    var rows = table && table.rows ? table.rows : [];
-    for (var r = 0; r < rows.length; r++) {
-      if (!grid[r]) grid[r] = [];
-      var column = 0;
-      var cells = rows[r].cells;
-      for (var c = 0; c < cells.length; c++) {
-        while (grid[r][column]) column++;
-        var cell = cells[c];
-        var columnSpan = Math.max(1, parseInt(cell.colSpan, 10) || 1);
-        var rowSpan = Math.max(1, parseInt(cell.rowSpan, 10) || 1);
-        placements.push({ cell: cell, column: column, columnSpan: columnSpan });
-        for (var rr = 0; rr < rowSpan; rr++) {
-          if (!grid[r + rr]) grid[r + rr] = [];
-          for (var cc = 0; cc < columnSpan; cc++) grid[r + rr][column + cc] = cell;
-        }
-        column += columnSpan;
-      }
-      columnCount = Math.max(columnCount, grid[r].length);
-    }
-    var columnGroups = table.children;
-    var definedColumns = 0;
-    for (var g = 0; g < columnGroups.length; g++) {
-      if (columnGroups[g].tagName !== 'COLGROUP') continue;
-      var groupCols = columnGroups[g].children;
-      if (!groupCols.length) {
-        definedColumns += Math.max(1, parseInt(columnGroups[g].getAttribute('span'), 10) || 1);
-        continue;
-      }
-      for (var gc = 0; gc < groupCols.length; gc++) {
-        if (groupCols[gc].tagName === 'COL') {
-          definedColumns += Math.max(1, parseInt(groupCols[gc].getAttribute('span'), 10) || 1);
-        }
-      }
-    }
-    columnCount = Math.max(columnCount, definedColumns);
-    return { columnCount: columnCount, placements: placements };
-  }
-
-  function findCellPlacement(gridInfo, cell) {
-    for (var i = 0; i < gridInfo.placements.length; i++) {
-      if (gridInfo.placements[i].cell === cell) return gridInfo.placements[i];
-    }
-    return null;
-  }
-
-  function placementColumnIndexes(placement, columnCount) {
-    var result = [];
-    if (!placement) return result;
-    var end = Math.min(columnCount, placement.column + placement.columnSpan);
-    for (var i = Math.max(0, placement.column); i < end; i++) result.push(i);
-    return result;
-  }
-
-  function normalizeColumnIndexes(indexes, columnCount) {
-    var seen = {};
-    var result = [];
-    indexes = Array.isArray(indexes) ? indexes : [];
-    for (var i = 0; i < indexes.length; i++) {
-      var index = parseInt(indexes[i], 10);
-      if (isNaN(index) || index < 0 || index >= columnCount || seen[index]) continue;
-      seen[index] = true;
-      result.push(index);
-    }
-    result.sort(function (a, b) { return a - b; });
-    return result;
-  }
-
-  function clearTableColumnSelection() {
-    if (document.body) {
-      var marked = document.body.querySelectorAll('.ed-table-column-selected');
-      for (var i = 0; i < marked.length; i++) marked[i].classList.remove('ed-table-column-selected');
-    }
-    tableColumnSelection = null;
-  }
-
-  function markTableColumnSelection(table, gridInfo, indexes) {
-    var selected = {};
-    for (var i = 0; i < indexes.length; i++) selected[indexes[i]] = true;
-    for (var p = 0; p < gridInfo.placements.length; p++) {
-      var placement = gridInfo.placements[p];
-      var covered = placementColumnIndexes(placement, gridInfo.columnCount);
-      var hit = false;
-      for (var c = 0; c < covered.length; c++) {
-        if (selected[covered[c]]) { hit = true; break; }
-      }
-      placement.cell.classList.toggle('ed-table-column-selected', hit);
-    }
-  }
-
-  function setTableColumnSelection(table, gridInfo, indexes) {
-    clearTableColumnSelection();
-    indexes = normalizeColumnIndexes(indexes, gridInfo.columnCount);
-    if (!indexes.length) return;
-    assignId(table);
-    tableColumnSelection = {
-      tableId: table.getAttribute(ID_ATTR),
-      columnIndexes: indexes,
-    };
-    markTableColumnSelection(table, gridInfo, indexes);
-  }
-
-  function replaceTableColumnSelection(el) {
-    var table = findSelectedTable(el);
-    var cell = findSelectedTableCell(el);
-    if (!table || !cell) {
-      clearTableColumnSelection();
-      return false;
-    }
-    var gridInfo = buildTableGrid(table);
-    var placement = findCellPlacement(gridInfo, cell);
-    if (!placement) {
-      clearTableColumnSelection();
-      return false;
-    }
-    setTableColumnSelection(table, gridInfo,
-      placementColumnIndexes(placement, gridInfo.columnCount));
-    return true;
-  }
-
-  function toggleTableColumnSelection(el) {
-    var table = findSelectedTable(el);
-    var cell = findSelectedTableCell(el);
-    if (!table || !cell) return false;
-    assignId(table);
-    var gridInfo = buildTableGrid(table);
-    var placement = findCellPlacement(gridInfo, cell);
-    if (!placement) return false;
-    var tableId = table.getAttribute(ID_ATTR);
-    var indexes = tableColumnSelection && tableColumnSelection.tableId === tableId
-      ? tableColumnSelection.columnIndexes.slice() : [];
-    var covered = placementColumnIndexes(placement, gridInfo.columnCount);
-    var allSelected = covered.every(function (index) { return indexes.indexOf(index) >= 0; });
-    for (var i = 0; i < covered.length; i++) {
-      var pos = indexes.indexOf(covered[i]);
-      if (allSelected && pos >= 0) indexes.splice(pos, 1);
-      else if (!allSelected && pos < 0) indexes.push(covered[i]);
-    }
-    if (!indexes.length) indexes = covered;
-    setTableColumnSelection(table, gridInfo, indexes);
-    assignId(el);
-    selectedId = el.getAttribute(ID_ATTR);
-    selectedIds = [selectedId];
-    var oldSelected = document.body.querySelectorAll('.ed-selected');
-    for (var s = 0; s < oldSelected.length; s++) oldSelected[s].classList.remove('ed-selected');
-    el.classList.add('ed-selected');
-    showToolbar(el);
-    notifySelect(buildInfo(el));
-    notifySelectMulti();
-    return true;
-  }
-
-  function sanitizeLockedColumnIndexes(table, columnCount, writeBack) {
-    var raw = table ? table.getAttribute(TABLE_LOCK_ATTR) || '' : '';
-    var indexes = normalizeColumnIndexes(raw ? raw.split(',') : [], columnCount);
-    if (table && writeBack) {
-      if (indexes.length) table.setAttribute(TABLE_LOCK_ATTR, indexes.join(','));
-      else table.removeAttribute(TABLE_LOCK_ATTR);
-    }
-    return indexes;
-  }
-
-  /** 只读展开现有 col 的 span，供宽度回显使用；不在选择阶段改写表格结构。 */
-  function getTableColumnElements(table) {
-    var result = [];
-    var groups = table ? table.children : [];
-    for (var g = 0; g < groups.length; g++) {
-      if (groups[g].tagName !== 'COLGROUP') continue;
-      var cols = groups[g].children;
-      for (var c = 0; c < cols.length; c++) {
-        if (cols[c].tagName !== 'COL') continue;
-        var span = Math.max(1, parseInt(cols[c].getAttribute('span'), 10) || 1);
-        for (var s = 0; s < span; s++) result.push(cols[c]);
-      }
-    }
-    return result;
-  }
-
-  function tableColumnWidths(table, columnCount) {
-    var widths = [];
-    var tableWidth = table.getBoundingClientRect().width;
-    var gridInfo = buildTableGrid(table);
-    var existingColumns = getTableColumnElements(table);
-    for (var i = 0; i < columnCount; i++) {
-      var parsed = 0;
-      if (existingColumns.length === columnCount) {
-        var inlineWidth = existingColumns[i].style.getPropertyValue('width').trim();
-        if (/%$/.test(inlineWidth)) parsed = parseFloat(inlineWidth);
-        if (!(parsed > 0)) {
-          var columnWidth = existingColumns[i].getBoundingClientRect().width;
-          parsed = tableWidth > 0 && columnWidth > 0
-            ? columnWidth / tableWidth * 100 : parseFloat(inlineWidth);
-        }
-      }
-      var cellWidth = 0;
-      if (!(parsed > 0)) {
-        for (var p = 0; p < gridInfo.placements.length; p++) {
-          var placement = gridInfo.placements[p];
-          if (i >= placement.column && i < placement.column + placement.columnSpan) {
-            cellWidth = placement.cell.getBoundingClientRect().width / placement.columnSpan;
-            break;
-          }
-        }
-        parsed = tableWidth > 0 && cellWidth > 0 ? cellWidth / tableWidth * 100 : 100 / columnCount;
-      }
-      widths.push(parsed);
-    }
-    var total = widths.reduce(function (sum, value) { return sum + value; }, 0) || 100;
-    return widths.map(function (value) { return value / total * 100; });
-  }
-
-  function sumColumnWidths(widths, indexes) {
-    var total = 0;
-    for (var i = 0; i < indexes.length; i++) total += widths[indexes[i]] || 0;
-    return total;
-  }
-
-  function tableWidthPercent(table) {
-    var parent = table.parentElement;
-    var parentWidth = 0;
-    if (parent) {
-      var parentStyle = window.getComputedStyle(parent);
-      parentWidth = parent.clientWidth -
-        (parseFloat(parentStyle.paddingLeft) || 0) -
-        (parseFloat(parentStyle.paddingRight) || 0);
-    }
-    var tableWidth = table.getBoundingClientRect().width;
-    var fallback = parseFloat(table.style.width) || 100;
-    return Math.round((parentWidth > 0 ? tableWidth / parentWidth * 100 : fallback) * 100) / 100;
-  }
-
-  function buildTableInfo(el) {
-    var table = findSelectedTable(el);
-    var cell = findSelectedTableCell(el);
-    if (!table || !cell) return undefined;
-    assignId(table);
-    assignId(cell);
-    var gridInfo = buildTableGrid(table);
-    var placement = findCellPlacement(gridInfo, cell);
-    if (!placement || gridInfo.columnCount < 1) return undefined;
-    var tableId = table.getAttribute(ID_ATTR);
-    var indexes = tableColumnSelection && tableColumnSelection.tableId === tableId
-      ? normalizeColumnIndexes(tableColumnSelection.columnIndexes, gridInfo.columnCount)
-      : placementColumnIndexes(placement, gridInfo.columnCount);
-    var locked = sanitizeLockedColumnIndexes(table, gridInfo.columnCount, true);
-    var mode = indexes.length === gridInfo.columnCount ? 'table' : 'columns';
-    var minColumnWidth = Math.min(5, 100 / gridInfo.columnCount);
-    var widths = tableColumnWidths(table, gridInfo.columnCount);
-    var selectedLookup = {};
-    for (var i = 0; i < indexes.length; i++) selectedLookup[indexes[i]] = true;
-    var lockedOtherWidth = 0;
-    var freeColumnCount = 0;
-    for (var c = 0; c < gridInfo.columnCount; c++) {
-      if (selectedLookup[c]) continue;
-      if (locked.indexOf(c) >= 0) lockedOtherWidth += widths[c];
-      else freeColumnCount++;
-    }
-    var minWidth = mode === 'table' ? 5 :
-      (freeColumnCount > 0 ? minColumnWidth * indexes.length : 100 - lockedOtherWidth);
-    var maxWidth = mode === 'table' ? 100 :
-      Math.max(minWidth, 100 - lockedOtherWidth - minColumnWidth * freeColumnCount);
-    return {
-      tableId: tableId,
-      cellId: cell.getAttribute(ID_ATTR),
-      columnIndex: placement.column,
-      columnSpan: placement.columnSpan,
-      columnCount: gridInfo.columnCount,
-      columnIndexes: indexes,
-      lockedColumnIndexes: locked,
-      mode: mode,
-      widthPercent: Math.max(minWidth, Math.min(maxWidth,
-        mode === 'table' ? tableWidthPercent(table) : sumColumnWidths(widths, indexes))),
-      minWidthPercent: minWidth,
-      maxWidthPercent: maxWidth,
-      editable: true,
-      allSelectedLocked: indexes.every(function (index) { return locked.indexOf(index) >= 0; }),
-    };
   }
 
   function buildInfo(el) {
@@ -1191,7 +425,7 @@ Error generating stack: `+o.message+`
     var text = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
     var isImg = el.tagName === 'IMG';
     // 【新增】读取当前样式，供父窗口面板回显
-    var cs = window.getComputedStyle(selectedTextStyleElement(el));
+    var cs = window.getComputedStyle(el);
     var fontSz = cs.fontSize;
     var fontSize = ''; // 提取数字
     if (fontSz) {
@@ -1242,19 +476,6 @@ Error generating stack: `+o.message+`
       lineHeight: lineHeightNum,
       letterSpacing: letterSpacingNum,
       fontFamily: cs.fontFamily,
-      tableInfo: buildTableInfo(el),
-      layoutInfo: {
-        width: rect.width / (zoomLevel || 1),
-        height: rect.height / (zoomLevel || 1),
-        marginTop: parseFloat(cs.marginTop) || 0,
-        marginRight: parseFloat(cs.marginRight) || 0,
-        marginBottom: parseFloat(cs.marginBottom) || 0,
-        marginLeft: parseFloat(cs.marginLeft) || 0,
-        paddingTop: parseFloat(cs.paddingTop) || 0,
-        paddingRight: parseFloat(cs.paddingRight) || 0,
-        paddingBottom: parseFloat(cs.paddingBottom) || 0,
-        paddingLeft: parseFloat(cs.paddingLeft) || 0,
-      },
       multiCount: selectedIds.length,
       editing: editingId === el.getAttribute(ID_ATTR),
     };
@@ -1312,11 +533,6 @@ Error generating stack: `+o.message+`
   // ============ 事件 ============
 
   function handleClick(e) {
-    if (Date.now() < suppressFlowClickUntil) {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
     // 点击工具条内部不处理
     if (e.target && e.target.closest && e.target.closest('.ed-toolbar')) return;
     var el = e.target;
@@ -1364,7 +580,6 @@ Error generating stack: `+o.message+`
 
     // Shift+点击 → 多选切换（G14）
     if (e.shiftKey) {
-      if (toggleTableColumnSelection(el)) return;
       toggleSelect(el);
       return;
     }
@@ -1383,11 +598,6 @@ Error generating stack: `+o.message+`
   }
 
   function handleDblClick(e) {
-    if (Date.now() < suppressFlowClickUntil) {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
     var el = e.target;
     if (!isEditableTarget(el)) return;
     if (el.tagName === 'IMG') {
@@ -1447,68 +657,9 @@ Error generating stack: `+o.message+`
   var editingSnapshot = null; // 进入编辑前的原始 HTML，用于 Escape 还原
   var editingHistoryPushed = false; // 进入编辑前是否已 push 历史
 
-  function clearCachedTextRange() {
-    cachedTextRange = null;
-  }
-
-  function rangeNodeInside(root, node) {
-    if (!root || !node || node.ownerDocument !== document || !node.isConnected) return false;
-    return node === root || root.contains(node.nodeType === 1 ? node : node.parentNode);
-  }
-
-  function validCachedTextRange(rootId) {
-    if (!cachedTextRange || (rootId && cachedTextRange.rootId !== rootId)) return null;
-    var root = findById(cachedTextRange.rootId);
-    var range = cachedTextRange.range;
-    if (!root || !root.isConnected || !range || range.collapsed ||
-        !rangeNodeInside(root, range.startContainer) ||
-        !rangeNodeInside(root, range.endContainer)) {
-      clearCachedTextRange();
-      return null;
-    }
-    return { root: root, range: range.cloneRange() };
-  }
-
-  function cacheCurrentTextRange() {
-    if (!editingId) {
-      clearCachedTextRange();
-      return;
-    }
-    var root = findById(editingId);
-    var selection = window.getSelection();
-    if (!root || !selection || selection.rangeCount === 0) {
-      clearCachedTextRange();
-      return;
-    }
-    var range = selection.getRangeAt(0);
-    if (range.collapsed || !rangeNodeInside(root, range.startContainer) ||
-        !rangeNodeInside(root, range.endContainer)) {
-      clearCachedTextRange();
-      return;
-    }
-    cachedTextRange = { rootId: editingId, range: range.cloneRange() };
-  }
-
-  function selectedTextStyleElement(root) {
-    if (!root || !root.getAttribute) return root;
-    var cached = validCachedTextRange(root.getAttribute(ID_ATTR));
-    if (!cached) return root;
-    var node = cached.range.startContainer;
-    if (node.nodeType === 1 && node.childNodes.length) {
-      var offset = Math.min(cached.range.startOffset, node.childNodes.length - 1);
-      node = node.childNodes[offset];
-      while (node && node.nodeType === 1 && node.firstChild) node = node.firstChild;
-    }
-    if (node && node.nodeType === 3) node = node.parentElement;
-    else if (node && node.nodeType !== 1) node = node.parentElement;
-    if (node && node.nodeType === 1 && (node === root || root.contains(node))) return node;
-    return root;
-  }
-
   function startEditing(el, clickX, clickY) {
     if (el.tagName === 'IMG') return;
-    if (editingId) stopEditing(false);
-    clearCachedTextRange();
+    if (editingId) stopEditing(true);
     assignId(el);
     var id = el.getAttribute(ID_ATTR);
 
@@ -1557,9 +708,7 @@ Error generating stack: `+o.message+`
   }
 
   function onBlurEdit(e) {
-    // 点击父页面板会先触发 iframe blur，再发送样式命令。
-    // 有有效文字选区时保留逻辑编辑态，下一次画布操作再提交。
-    if (!validCachedTextRange(editingId)) stopEditing(false);
+    stopEditing(false);
   }
 
   function onKeyEdit(e) {
@@ -1597,7 +746,6 @@ Error generating stack: `+o.message+`
   function stopEditing(revert) {
     var id = editingId;
     editingId = null;
-    clearCachedTextRange();
     if (!id) return;
     var el = findById(id);
     if (el) {
@@ -1713,85 +861,67 @@ Error generating stack: `+o.message+`
 
   // ============ DOM 操作（增删移动） ============
 
-  function deleteBlockReason(el) {
-    if (!el || !document.body || !el.isConnected) return '目标元素已不存在';
-    if (el === document.documentElement || el === document.body) return '不能删除整个页面';
-    if (el.hasAttribute && el.hasAttribute('data-ed-injected')) return '不能删除编辑器控件';
-    if (el.parentElement === document.body) {
-      var top = [];
-      var children = document.body.children;
-      for (var i = 0; i < children.length; i++) {
-        if (isEditableTarget(children[i]) && !children[i].hasAttribute('data-ed-injected')) top.push(children[i]);
-      }
-      if (top.length === 1 && top[0] === el && (isContainer(el) || el.children.length > 0)) {
-        return '不能删除页面根容器，请选择内部元素';
-      }
-    }
-    return '';
-  }
-
-  function rejectDelete(reason) {
-    HOST.postMessage({ source: 'ed-editor', type: 'DELETE_REJECTED', payload: { reason: reason } }, '*');
-    return { ok: false, reason: reason };
-  }
-
-  function syncAfterDelete() {
-    hideToolbar();
-    selectedId = null;
-    selectedIds = [];
-    remarkAll();
-    notifySelect(null);
-    notifySelectMulti();
-    notifyLayerTree();
-    notifyChanged();
-  }
-
   function deleteEl(el) {
-    var reason = deleteBlockReason(el);
-    if (reason) return rejectDelete(reason);
-    beforeChange('删除元素');
+    if (!el) return;
+    beforeChange();
     if (el.classList) {
       el.classList.remove('ed-selected');
       el.classList.remove('ed-hover');
     }
+    var sibling = el.nextElementSibling || el.previousElementSibling;
     el.remove();
-    syncAfterDelete();
-    return { ok: true, reason: '' };
+    hideToolbar();
+    selectedId = null;
+    notifySelect(null);
+    // 选中相邻元素方便连续操作
+    if (sibling && isEditableTarget(sibling)) selectElement(sibling);
+    notifyChanged();
   }
 
   function duplicateEl(el) {
     if (!el) return;
-    copyElements([el]);
+    beforeChange();
+    var clone = el.cloneNode(true);
+    clone.removeAttribute(ID_ATTR);
+    clone.classList.remove('ed-selected', 'ed-hover');
+    if (el.parentNode) {
+      el.parentNode.insertBefore(clone, el.nextSibling);
+      assignId(clone);
+      selectElement(clone);
+    }
+    notifyChanged();
   }
 
   // ============ 剪贴板复制 / 粘贴 ============
   /** 克隆并清理编辑标记，返回可入库的 outerHTML */
   function cleanCloneForClipboard(el) {
     var clone = el.cloneNode(true);
-    var injected = clone.querySelectorAll('[data-ed-injected]');
-    for (var i = injected.length - 1; i >= 0; i--) injected[i].remove();
-    var nodes = [clone];
-    var descendants = clone.querySelectorAll('*');
-    for (var d = 0; d < descendants.length; d++) nodes.push(descendants[d]);
-    for (var n = 0; n < nodes.length; n++) {
-      var node = nodes[n];
-      node.removeAttribute('id');
-      node.removeAttribute(ID_ATTR);
-      node.removeAttribute(TABLE_LOCK_ATTR);
-      node.removeAttribute('contenteditable');
-      node.classList.remove('ed-selected', 'ed-hover', 'ed-editing', 'ed-table-column-selected');
-      if (node.getAttribute('class') === '') node.removeAttribute('class');
+    clone.removeAttribute(ID_ATTR);
+    clone.classList.remove('ed-selected', 'ed-hover', 'ed-editing');
+    if (clone.getAttribute('contenteditable') === 'true') clone.removeAttribute('contenteditable');
+    var desc = clone.querySelectorAll('[' + ID_ATTR + ']');
+    for (var i = 0; i < desc.length; i++) {
+      desc[i].removeAttribute(ID_ATTR);
+      desc[i].classList.remove('ed-selected', 'ed-hover', 'ed-editing');
+      if (desc[i].getAttribute('contenteditable') === 'true') desc[i].removeAttribute('contenteditable');
+      if (desc[i].getAttribute('class') === '') desc[i].removeAttribute('class');
     }
+    if (clone.getAttribute('class') === '') clone.removeAttribute('class');
     return clone.outerHTML;
   }
 
-  function copyElements(elements) {
+  /** 复制选中元素（支持多选）到内部剪贴板，不改动文档 */
+  function copySelection() {
+    var ids = selectedIds.length > 0 ? selectedIds.slice() : (selectedId ? [selectedId] : []);
+    if (ids.length === 0) return;
     var htmls = [];
-    for (var i = 0; i < elements.length; i++) {
-      if (elements[i]) htmls.push(cleanCloneForClipboard(elements[i]));
+    for (var i = 0; i < ids.length; i++) {
+      var el = findById(ids[i]);
+      if (el) htmls.push(cleanCloneForClipboard(el));
     }
-    if (!htmls.length) return;
+    if (htmls.length === 0) return;
     clipboard = htmls;
+    // 剪贴板有内容后显示粘贴按钮
     if (toolbar) {
       var pasteBtn = toolbar.querySelector('[data-act="paste"]');
       if (pasteBtn) pasteBtn.style.display = '';
@@ -1799,255 +929,49 @@ Error generating stack: `+o.message+`
     HOST.postMessage({ source: 'ed-editor', type: 'COPIED', payload: { count: htmls.length } }, '*');
   }
 
-  /** 复制选中元素（支持多选）到内部剪贴板，不改动文档 */
-  function copySelection() {
-    var ids = selectedIds.length > 0 ? selectedIds.slice() : (selectedId ? [selectedId] : []);
-    if (ids.length === 0) return;
-    var elements = [];
-    for (var i = 0; i < ids.length; i++) {
-      var el = findById(ids[i]);
-      if (el) elements.push(el);
-    }
-    copyElements(elements);
-  }
-
-  /** 粘贴后只适配副本本身，不改动目标容器、兄弟或嵌套表格。 */
+  /** 粘贴时宽度自适应：根元素限宽 100%，内部图片等比缩放不溢出模块 */
   function adaptPasted(root) {
     if (!root || root.nodeType !== 1) return;
-    if (root.tagName === 'IMG' || root.tagName === 'VIDEO') {
-      root.style.width = '100%';
-      root.style.maxWidth = '100%';
+    root.style.maxWidth = '100%';
+    if (root.tagName === 'IMG') {
       root.style.height = 'auto';
-    } else if (root.tagName === 'TABLE') {
-      root.style.width = '100%';
-      root.style.maxWidth = '100%';
-      applyResponsiveTableStyle(root);
-    } else if (!/^(THEAD|TBODY|TFOOT|TR|TD|TH)$/.test(root.tagName)) {
-      root.style.width = '100%';
-      root.style.maxWidth = '100%';
-      root.style.boxSizing = 'border-box';
     }
-    var media = root.querySelectorAll ? root.querySelectorAll('img,video') : [];
-    for (var i = 0; i < media.length; i++) {
-      media[i].style.maxWidth = '100%';
-      media[i].style.height = 'auto';
+    var imgs = root.querySelectorAll ? root.querySelectorAll('img') : [];
+    for (var i = 0; i < imgs.length; i++) {
+      imgs[i].style.maxWidth = '100%';
+      imgs[i].style.height = 'auto';
     }
   }
 
-  function setLayoutSpacing(payload) {
-    payload = payload || {};
-    var el = findById(payload.id || selectedId);
-    var props = {
-      marginTop: 'marginTop',
-      marginRight: 'marginRight',
-      marginBottom: 'marginBottom',
-      marginLeft: 'marginLeft',
-      paddingTop: 'paddingTop',
-      paddingRight: 'paddingRight',
-      paddingBottom: 'paddingBottom',
-      paddingLeft: 'paddingLeft',
-    };
-    var phase = payload.phase || 'commit';
-    if (phase === 'cancel') {
-      if (!el || !layoutSpacingSession ||
-          layoutSpacingSession.id !== el.getAttribute(ID_ATTR)) return;
-      var cancelId = layoutSpacingSession.id;
-      if (layoutSpacingSession.style == null) el.removeAttribute('style');
-      else el.setAttribute('style', layoutSpacingSession.style);
-      past = layoutSpacingSession.past;
-      historyLabels = layoutSpacingSession.labels;
-      future = layoutSpacingSession.future;
-      layoutSpacingSession = null;
-      if (selectedId === cancelId) {
-        positionToolbar(el);
-        positionResizeHandles(el);
-        notifySelect(buildInfo(el));
-      }
-      notifyHistory();
-      return;
-    }
-    var rawValues = payload.values && typeof payload.values === 'object'
-      ? payload.values
-      : (payload.prop ? (function () {
-          var single = {};
-          single[payload.prop] = payload.value;
-          return single;
-        })() : {});
-    var updates = [];
-    Object.keys(rawValues).forEach(function (prop) {
-      var styleProp = props[prop];
-      var value = Number(rawValues[prop]);
-      if (!styleProp || !isFinite(value)) return;
-      value = styleProp.indexOf('padding') === 0
-        ? Math.max(0, Math.min(1000, value))
-        : Math.max(-500, Math.min(1000, value));
-      updates.push({ prop: prop, styleProp: styleProp, value: Math.round(value * 100) / 100 });
-    });
-    if (!el || updates.length === 0) return;
-    updates.sort(function (a, b) { return a.prop < b.prop ? -1 : (a.prop > b.prop ? 1 : 0); });
-    var sessionKey = updates.map(function (item) { return item.prop; }).join('|');
-    var sessionMatches = layoutSpacingSession &&
-      layoutSpacingSession.id === el.getAttribute(ID_ATTR) &&
-      layoutSpacingSession.key === sessionKey;
-    if (phase === 'start') {
-      var sessionState = {
-        id: el.getAttribute(ID_ATTR),
-        key: sessionKey,
-        style: el.getAttribute('style'),
-        past: past.slice(),
-        labels: historyLabels.slice(),
-        future: future.slice(),
-      };
-      beforeChange('调整内外间距');
-      layoutSpacingSession = sessionState;
-    } else if (!sessionMatches) {
-      beforeChange('调整内外间距');
-    }
-    for (var i = 0; i < updates.length; i++) {
-      el.style[updates[i].styleProp] = updates[i].value + 'px';
-    }
-    if (selectedId === el.getAttribute(ID_ATTR)) {
-      positionToolbar(el);
-      positionResizeHandles(el);
-      notifySelect(buildInfo(el));
-    }
-    if (phase === 'commit') {
-      layoutSpacingSession = null;
-      notifyChanged();
-    }
-  }
-
-  function fitElementToContainer(id) {
-    var el = findById(id || selectedId);
-    if (!el) return;
-    beforeChange('适应当前容器');
-    if (el.tagName === 'IMG' || el.tagName === 'VIDEO') {
-      el.style.width = '100%';
-      el.style.maxWidth = '100%';
-      el.style.height = 'auto';
-    } else if (el.tagName === 'TABLE') {
-      el.style.width = '100%';
-      el.style.maxWidth = '100%';
-      applyResponsiveTableStyle(el);
-    } else {
-      el.style.width = '100%';
-      el.style.maxWidth = '100%';
-      el.style.boxSizing = 'border-box';
-    }
-    positionToolbar(el);
-    positionResizeHandles(el);
-    notifySelect(buildInfo(el));
-    notifyChanged();
-  }
-
-  function parseClipboardElement(html) {
-    var match = String(html).match(/^\s*<\s*([a-z0-9]+)/i);
-    var tag = match ? match[1].toUpperCase() : '';
-    if (tag === 'TD' || tag === 'TH') {
-      var cellTable = document.createElement('table');
-      cellTable.innerHTML = '<tbody><tr>' + html + '</tr></tbody>';
-      return cellTable.rows[0] && cellTable.rows[0].cells[0];
-    }
-    if (tag === 'TR') {
-      var rowTable = document.createElement('table');
-      rowTable.innerHTML = '<tbody>' + html + '</tbody>';
-      return rowTable.rows[0];
-    }
-    if (/^(THEAD|TBODY|TFOOT)$/.test(tag)) {
-      var groupTable = document.createElement('table');
-      groupTable.innerHTML = html;
-      return groupTable.querySelector(tag.toLowerCase());
-    }
-    var tpl = document.createElement('template');
-    tpl.innerHTML = html;
-    return tpl.content.firstElementChild;
-  }
-
-  function assignFreshIds(root) {
-    assignId(root);
-    var descendants = root.querySelectorAll('*');
-    for (var i = 0; i < descendants.length; i++) assignId(descendants[i]);
-  }
-
-  function insertRowGroup(group, table) {
-    if (group.tagName === 'THEAD') {
-      table.insertBefore(group, table.querySelector('tbody,tfoot'));
-    } else if (group.tagName === 'TBODY') {
-      table.insertBefore(group, table.querySelector('tfoot'));
-    } else {
-      table.appendChild(group);
-    }
-  }
-
-  /** 按 HTML 内容模型插入，避免浏览器把 table/tr/td 自动移位或丢弃。 */
-  function insertPastedNode(node, targetRef, insertionRef) {
-    var ref = targetRef;
-    var anchor = insertionRef || targetRef;
-    var tag = node.tagName;
-    var targetTable = ref && ref.closest ? ref.closest('table') : null;
-    if (tag === 'TABLE' && targetTable && targetTable.parentNode) {
-      var anchorTable = anchor && anchor.closest ? anchor.closest('table') : null;
-      var afterTable = anchorTable && anchorTable.parentNode === targetTable.parentNode ? anchorTable : targetTable;
-      targetTable.parentNode.insertBefore(node, afterTable.nextSibling);
-      return node;
-    }
-    if (/^(THEAD|TBODY|TFOOT)$/.test(tag) && targetTable) {
-      insertRowGroup(node, targetTable);
-      return node;
-    }
-    if (tag === 'TR') {
-      var targetRow = anchor && anchor.closest ? anchor.closest('tr') : null;
-      if (!targetRow) targetRow = ref && ref.closest ? ref.closest('tr') : null;
-      if (targetRow && /^(THEAD|TBODY|TFOOT)$/.test(targetRow.parentElement.tagName)) {
-        targetRow.parentElement.insertBefore(node, targetRow.nextSibling);
-      } else if (targetTable) {
-        (targetTable.tBodies[0] || targetTable.createTBody()).appendChild(node);
-      } else {
-        document.body.appendChild(node);
-      }
-      return node;
-    }
-    if (tag === 'TD' || tag === 'TH') {
-      var targetCell = anchor && anchor.closest ? anchor.closest('td,th') : null;
-      if (!targetCell) targetCell = ref && ref.closest ? ref.closest('td,th') : null;
-      var row = targetCell ? targetCell.parentElement : (targetTable && targetTable.rows[0]);
-      if (!row && targetTable) row = (targetTable.tBodies[0] || targetTable.createTBody()).insertRow();
-      if (row) row.insertBefore(node, targetCell ? targetCell.nextSibling : null);
-      else document.body.appendChild(node);
-      return node;
-    }
-    if (ref && /^(TD|TH)$/.test(ref.tagName)) {
-      ref.appendChild(node);
-    } else if (ref && isContainer(ref) && !/^(TABLE|THEAD|TBODY|TFOOT|TR)$/.test(ref.tagName)) {
-      ref.appendChild(node);
-    } else if (anchor && anchor.parentNode) {
-      anchor.parentNode.insertBefore(node, anchor.nextSibling);
-    } else {
-      document.body.appendChild(node);
-    }
-    return node;
-  }
-
-  /** 把内部剪贴板内容粘贴到当前目标，并为副本重新生成编辑器 ID。 */
+  /** 把剪贴板内容粘贴到当前选中位置：
+   *  选中容器 → 追加到其内部末尾；选中非容器 → 插到其后方；无选中 → body 末尾 */
   function pasteClipboard() {
     if (clipboard.length === 0) return;
-    var nodes = [];
-    for (var i = 0; i < clipboard.length; i++) {
-      var parsed = parseClipboardElement(clipboard[i]);
-      if (parsed) nodes.push(parsed);
-    }
-    if (nodes.length === 0) return;
-    var targetRef = selectedId ? findById(selectedId) : null;
-    var insertionRef = targetRef;
+    var ref = selectedId ? findById(selectedId) : null;
     beforeChange('粘贴');
+    var tpl = document.createElement('div');
+    var frag = document.createDocumentFragment();
     var firstNode = null;
-    for (var n = 0; n < nodes.length; n++) {
-      var node = nodes[n];
-      adaptPasted(node);
-      insertPastedNode(node, targetRef, insertionRef);
-      assignFreshIds(node);
-      if (!firstNode) firstNode = node;
-      insertionRef = node;
+    for (var i = 0; i < clipboard.length; i++) {
+      tpl.innerHTML = clipboard[i];
+      while (tpl.firstChild) {
+        var node = tpl.firstChild;
+        if (node.nodeType === 1) {
+          assignId(node);
+          var desc = node.querySelectorAll ? node.querySelectorAll('*') : [];
+          for (var d = 0; d < desc.length; d++) assignId(desc[d]);
+          adaptPasted(node);
+          if (!firstNode) firstNode = node;
+        }
+        frag.appendChild(node);
+      }
+    }
+    if (ref && isContainer(ref)) {
+      ref.appendChild(frag);
+    } else if (ref && ref.parentNode) {
+      ref.parentNode.insertBefore(frag, ref.nextSibling);
+    } else {
+      document.body.appendChild(frag);
     }
     if (firstNode) selectElement(firstNode);
     notifyChanged();
@@ -2148,437 +1072,45 @@ Error generating stack: `+o.message+`
     return false;
   }
 
-  // ============ 文档流元素拖放 ============
-  function flowTag(el) {
-    return el && el.tagName ? String(el.tagName).toUpperCase() : '';
-  }
-
-  function isFlowStructuralTag(tag) {
-    return /^(CAPTION|COLGROUP|COL|THEAD|TBODY|TFOOT|TR|TD|TH|LI)$/.test(tag);
-  }
-
-  /** 判断父节点能否直接接收源节点，避免由浏览器悄悄修复出非法表格/列表结构。 */
-  function flowParentAccepts(parent, source) {
-    if (!parent || !source || parent === source || source.contains(parent)) return false;
-    if (parent === source.parentElement) return true;
-    var parentTag = flowTag(parent);
-    var sourceTag = flowTag(source);
-    if (sourceTag === 'COL') return parentTag === 'COLGROUP';
-    if (sourceTag === 'CAPTION' || sourceTag === 'COLGROUP' ||
-        /^(THEAD|TBODY|TFOOT)$/.test(sourceTag)) {
-      return parentTag === 'TABLE';
-    }
-    if (sourceTag === 'TR') return /^(THEAD|TBODY|TFOOT)$/.test(parentTag);
-    if (sourceTag === 'TD' || sourceTag === 'TH') return parentTag === 'TR';
-    if (sourceTag === 'LI') return parentTag === 'UL' || parentTag === 'OL';
-    if (parentTag === 'TABLE' || parentTag === 'COLGROUP' ||
-        /^(THEAD|TBODY|TFOOT|TR|UL|OL)$/.test(parentTag)) return false;
-    if (isFlowStructuralTag(sourceTag)) return false;
-    return parent === document.body || isContainer(parent);
-  }
-
-  function flowChildren(parent, source) {
-    var result = [];
-    if (!parent) return result;
-    for (var i = 0; i < parent.children.length; i++) {
-      var child = parent.children[i];
-      if (child === source || child.hasAttribute('data-ed-injected')) continue;
-      result.push(child);
-    }
-    return result;
-  }
-
-  function flowAxis(parent, children) {
-    var tag = flowTag(parent);
-    if (tag === 'TR' || tag === 'COLGROUP') return 'x';
-    var cs = getComputedStyle(parent);
-    if (cs.display === 'flex' && /^row/.test(cs.flexDirection)) return 'x';
-    if (children && children.length > 1) {
-      var a = children[0].getBoundingClientRect();
-      var b = children[1].getBoundingClientRect();
-      if (Math.abs(b.left - a.left) > Math.abs(b.top - a.top)) return 'x';
-    }
-    return 'y';
-  }
-
-  function flowPlacementInside(parent, source, clientX, clientY) {
-    if (!flowParentAccepts(parent, source)) return null;
-    var children = flowChildren(parent, source);
-    if (children.length === 0) return { parent: parent, anchor: null, after: true };
-    var axis = flowAxis(parent, children);
-    var point = axis === 'x' ? clientX : clientY;
-    var closest = null;
-    var closestDistance = Infinity;
-    for (var i = 0; i < children.length; i++) {
-      var rect = children[i].getBoundingClientRect();
-      var middle = axis === 'x' ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
-      var distance = Math.abs(point - middle);
-      if (distance < closestDistance) {
-        closestDistance = distance;
-        closest = { parent: parent, anchor: children[i], after: point >= middle };
-      }
-    }
-    return closest;
-  }
-
-  /** 从命中节点向外寻找合法父节点；容器中心用于放入内部，边缘用于同级重排。 */
-  function flowPlacementAt(source, clientX, clientY) {
-    var hit = document.elementFromPoint(clientX, clientY);
-    while (hit && hit.nodeType === 1 && hit.hasAttribute('data-ed-injected')) {
-      hit = hit.parentElement;
-    }
-    if (!hit) return null;
-    var cur = hit;
-    while (cur && cur !== document.documentElement) {
-      if (cur !== source && !source.contains(cur) && flowParentAccepts(cur, source)) {
-        var insideRect = cur.getBoundingClientRect();
-        var insideChildren = flowChildren(cur, source);
-        var insetX = Math.min(18, insideRect.width * .2);
-        var insetY = Math.min(18, insideRect.height * .2);
-        var inCenter = clientX >= insideRect.left + insetX &&
-          clientX <= insideRect.right - insetX &&
-          clientY >= insideRect.top + insetY &&
-          clientY <= insideRect.bottom - insetY;
-        if (insideChildren.length === 0 || inCenter) {
-          return flowPlacementInside(cur, source, clientX, clientY);
-        }
-      }
-      if (cur !== source && !source.contains(cur) &&
-          cur.parentElement && flowParentAccepts(cur.parentElement, source)) {
-        var siblings = flowChildren(cur.parentElement, source);
-        var axis = flowAxis(cur.parentElement, siblings);
-        var rect = cur.getBoundingClientRect();
-        var middle = axis === 'x' ? rect.left + rect.width / 2 : rect.top + rect.height / 2;
-        var point = axis === 'x' ? clientX : clientY;
-        return { parent: cur.parentElement, anchor: cur, after: point >= middle };
-      }
-      cur = cur.parentElement;
-    }
-    return flowPlacementInside(document.body, source, clientX, clientY);
-  }
-
-  function clearFlowGuide(guide) {
-    if (guide) guide.style.display = 'none';
-  }
-
-  function positionFlowGuide(guide, axis, position, bounds) {
-    if (!guide || !bounds) return;
-    guide.setAttribute('data-axis', axis);
-    guide.style.display = 'block';
-    if (axis === 'x') {
-      guide.style.left = Math.round(position) + 'px';
-      guide.style.top = Math.round(bounds.top) + 'px';
-      guide.style.height = Math.max(1, Math.round(bounds.height)) + 'px';
-    } else {
-      guide.style.left = Math.round(bounds.left) + 'px';
-      guide.style.top = Math.round(position) + 'px';
-      guide.style.width = Math.max(1, Math.round(bounds.width)) + 'px';
-    }
-  }
-
-  function flowContentRect(parent) {
-    var rect = parent.getBoundingClientRect();
-    if (parent === document.body) {
-      return {
-        left: 0, top: 0,
-        right: document.documentElement.clientWidth,
-        bottom: document.documentElement.clientHeight,
-        width: document.documentElement.clientWidth,
-        height: document.documentElement.clientHeight,
-      };
-    }
-    var cs = getComputedStyle(parent);
-    var paddingLeft = parseFloat(cs.paddingLeft) || 0;
-    var paddingRight = parseFloat(cs.paddingRight) || 0;
-    var paddingTop = parseFloat(cs.paddingTop) || 0;
-    var paddingBottom = parseFloat(cs.paddingBottom) || 0;
-    var left = rect.left + (parseFloat(cs.borderLeftWidth) || 0) + paddingLeft;
-    var top = rect.top + (parseFloat(cs.borderTopWidth) || 0) + paddingTop;
-    var width = Math.max(0, parent.clientWidth - paddingLeft - paddingRight);
-    var height = Math.max(0, parent.clientHeight - paddingTop - paddingBottom);
-    return {
-      left: left, top: top, right: left + width, bottom: top + height,
-      width: width, height: height,
-    };
-  }
-
-  function closestFlowSnap(values, references) {
-    var result = null;
-    for (var i = 0; i < values.length; i++) {
-      for (var j = 0; j < references.length; j++) {
-        var delta = references[j] - values[i];
-        if (Math.abs(delta) <= 6 && (!result || Math.abs(delta) < Math.abs(result.delta))) {
-          result = { delta: delta, position: references[j] };
-        }
-      }
-    }
-    return result;
-  }
-
-  /** 吸附只修正浮层位置；最终提交仍只保存 DOM 顺序。 */
-  function positionFlowPreview(session, clientX, clientY, parent) {
-    var left = clientX - session.offsetX;
-    var top = clientY - session.offsetY;
-    var refsX = [];
-    var refsY = [];
-    var bounds = flowContentRect(parent || document.body);
-    refsX.push(bounds.left, bounds.left + bounds.width / 2, bounds.right);
-    refsY.push(bounds.top, bounds.top + bounds.height / 2, bounds.bottom);
-    var siblings = flowChildren(parent, session.source);
-    for (var i = 0; i < siblings.length; i++) {
-      if (siblings[i] === session.placeholder) continue;
-      var rect = siblings[i].getBoundingClientRect();
-      refsX.push(rect.left, rect.left + rect.width / 2, rect.right);
-      refsY.push(rect.top, rect.top + rect.height / 2, rect.bottom);
-    }
-    var snapX = closestFlowSnap(
-      [left, left + session.width / 2, left + session.width], refsX);
-    var snapY = closestFlowSnap(
-      [top, top + session.height / 2, top + session.height], refsY);
-    if (snapX) left += snapX.delta;
-    if (snapY) top += snapY.delta;
-    session.preview.style.left = Math.round(left) + 'px';
-    session.preview.style.top = Math.round(top) + 'px';
-    if (snapX) positionFlowGuide(session.guideX, 'x', snapX.position, bounds);
-    else clearFlowGuide(session.guideX);
-    if (snapY) positionFlowGuide(session.guideY, 'y', snapY.position, bounds);
-    else clearFlowGuide(session.guideY);
-  }
-
-  function createFlowPlaceholder(source, rect) {
-    var computed = getComputedStyle(source);
-    var placeholder = source.cloneNode(false);
-    while (placeholder.attributes.length) {
-      placeholder.removeAttribute(placeholder.attributes[0].name);
-    }
-    placeholder.className = 'ed-flow-drop-placeholder';
-    placeholder.setAttribute('data-ed-injected', '1');
-    placeholder.style.width = Math.max(12, Math.round(rect.width)) + 'px';
-    placeholder.style.height = Math.max(12, Math.round(rect.height)) + 'px';
-    placeholder.style.display = computed.display;
-    placeholder.style.marginTop = computed.marginTop;
-    placeholder.style.marginRight = computed.marginRight;
-    placeholder.style.marginBottom = computed.marginBottom;
-    placeholder.style.marginLeft = computed.marginLeft;
-    placeholder.style.flex = computed.flex;
-    placeholder.style.alignSelf = computed.alignSelf;
-    return placeholder;
-  }
-
-  function createFlowPreview(source, rect) {
-    var preview = source.cloneNode(true);
-    preview.removeAttribute('id');
-    preview.removeAttribute(ID_ATTR);
-    preview.removeAttribute('contenteditable');
-    preview.classList.remove('ed-selected', 'ed-hover', 'ed-editing', 'ed-table-column-selected');
-    preview.classList.add('ed-flow-drag-preview');
-    preview.setAttribute('data-ed-injected', '1');
-    preview.style.setProperty('width', Math.max(1, rect.width) + 'px', 'important');
-    preview.style.setProperty('height', Math.max(1, rect.height) + 'px', 'important');
-    document.body.appendChild(preview);
-    return preview;
-  }
-
-  function createFlowGuide() {
-    var guide = document.createElement('div');
-    guide.className = 'ed-flow-guide';
-    guide.setAttribute('data-ed-injected', '1');
-    guide.style.display = 'none';
-    document.body.appendChild(guide);
-    return guide;
-  }
-
-  function beginFlowDragCandidate(event) {
-    if (event.button !== 0 || event.shiftKey || event.ctrlKey || event.metaKey ||
-        resizeSession || editingId) return;
-    var target = event.target;
-    if (!target || target.nodeType !== 1 || target.closest('[data-ed-injected]') ||
-        target.closest('input,textarea,select,option,[contenteditable="true"]')) return;
-    var source = rootSvg(target) || target;
-    if (!isEditableTarget(source) || source === document.body ||
-        source === document.documentElement) return;
-    flowDragCandidate = {
-      pointerId: event.pointerId,
-      source: source,
-      startX: event.clientX,
-      startY: event.clientY,
-    };
-    try { source.setPointerCapture(event.pointerId); } catch (err) {}
-  }
-
-  function startFlowDrag(event) {
-    var candidate = flowDragCandidate;
-    if (!candidate || !candidate.source.isConnected) return false;
-    var rect = candidate.source.getBoundingClientRect();
-    if (rect.width < 1 || rect.height < 1) return false;
-    var placeholder = createFlowPlaceholder(candidate.source, rect);
-    var preview = createFlowPreview(candidate.source, rect);
-    candidate.source.parentNode.insertBefore(placeholder, candidate.source);
-    candidate.source.classList.add('ed-flow-source-hidden');
-    flowDragSession = {
-      pointerId: candidate.pointerId,
-      source: candidate.source,
-      originalParent: candidate.source.parentElement,
-      originalPrevious: candidate.source.previousElementSibling === placeholder
-        ? placeholder.previousElementSibling : candidate.source.previousElementSibling,
-      placeholder: placeholder,
-      preview: preview,
-      guideX: createFlowGuide(),
-      guideY: createFlowGuide(),
-      offsetX: candidate.startX - rect.left,
-      offsetY: candidate.startY - rect.top,
-      width: rect.width,
-      height: rect.height,
-      placement: null,
-    };
-    flowDragCandidate = null;
-    updateFlowDrag(event);
-    return true;
-  }
-
-  function placeFlowPlaceholder(session, placement) {
-    if (!session || !placement || !placement.parent || !placement.parent.isConnected) return;
-    var children = flowChildren(placement.parent, session.source);
-    var index = placement.anchor ? children.indexOf(placement.anchor) : children.length;
-    if (index < 0) index = children.length;
-    if (placement.anchor && placement.after) index++;
-    var reference = index < children.length ? children[index] : null;
-    placement.parent.insertBefore(session.placeholder, reference);
-    session.placement = {
-      parent: placement.parent,
-      reference: reference,
-      previous: index > 0 ? children[index - 1] : null,
-    };
-  }
-
-  function updateFlowDrag(event) {
-    if (flowDragCandidate) {
-      if (event.pointerId !== flowDragCandidate.pointerId) return;
-      var dx = event.clientX - flowDragCandidate.startX;
-      var dy = event.clientY - flowDragCandidate.startY;
-      if (Math.sqrt(dx * dx + dy * dy) < 4) return;
-      if (!startFlowDrag(event)) {
-        cancelFlowDrag();
-        return;
-      }
-    }
-    var session = flowDragSession;
-    if (!session || event.pointerId !== session.pointerId) return;
-    event.preventDefault();
-    var placement = flowPlacementAt(session.source, event.clientX, event.clientY);
-    if (placement) placeFlowPlaceholder(session, placement);
-    positionFlowPreview(session, event.clientX, event.clientY,
-      session.placement ? session.placement.parent : session.originalParent);
-  }
-
-  function removeFlowRuntime(session) {
-    if (!session) return;
-    session.source.classList.remove('ed-flow-source-hidden');
-    if (session.placeholder) session.placeholder.remove();
-    if (session.preview) session.preview.remove();
-    if (session.guideX) session.guideX.remove();
-    if (session.guideY) session.guideY.remove();
-    try { session.source.releasePointerCapture(session.pointerId); } catch (err) {}
-  }
-
-  function cancelFlowDrag() {
-    var candidate = flowDragCandidate;
-    flowDragCandidate = null;
-    if (candidate && candidate.source) {
-      try { candidate.source.releasePointerCapture(candidate.pointerId); } catch (err) {}
-    }
-    var session = flowDragSession;
-    flowDragSession = null;
-    if (session) {
-      removeFlowRuntime(session);
-      suppressFlowClickUntil = Date.now() + 350;
-      var selected = selectedId ? findById(selectedId) : null;
-      if (selected) {
-        positionToolbar(selected);
-        positionResizeHandles(selected);
-      }
-    }
-  }
-
-  function finishFlowDrag(event, commit) {
-    if (flowDragCandidate && (!event || event.pointerId === flowDragCandidate.pointerId)) {
-      var candidate = flowDragCandidate;
-      flowDragCandidate = null;
-      try { candidate.source.releasePointerCapture(candidate.pointerId); } catch (err) {}
-    }
-    var session = flowDragSession;
-    if (!session || (event && event.pointerId !== session.pointerId)) return;
-    var placement = session.placement;
-    var changed = !!(commit && placement &&
-      (placement.parent !== session.originalParent ||
-       placement.previous !== session.originalPrevious));
-    flowDragSession = null;
-    removeFlowRuntime(session);
-    suppressFlowClickUntil = Date.now() + 350;
-    if (!changed) {
-      var current = selectedId ? findById(selectedId) : null;
-      if (current) {
-        positionToolbar(current);
-        positionResizeHandles(current);
-      }
-      return;
-    }
-    beforeChange('移动元素');
-    placement.parent.insertBefore(session.source, placement.reference);
-    selectElement(session.source);
-    notifyChanged();
-    notifyLayerTree();
-  }
-
   // ============ G14 多选群组操作 ============
   function multiDelete() {
     if (selectedIds.length === 0) return;
-    var targets = [];
+    beforeChange('批量删除');
     for (var i = 0; i < selectedIds.length; i++) {
       var el = findById(selectedIds[i]);
-      if (!el || targets.indexOf(el) >= 0) continue;
-      var reason = deleteBlockReason(el);
-      if (reason) return rejectDelete(reason);
-      targets.push(el);
+      if (el) el.remove();
     }
-    if (targets.length === 0) return;
-    targets = targets.filter(function (el) {
-      for (var j = 0; j < targets.length; j++) {
-        if (targets[j] !== el && targets[j].contains(el)) return false;
-      }
-      return true;
-    });
-    var top = [];
-    var children = document.body.children;
-    for (var t = 0; t < children.length; t++) {
-      if (isEditableTarget(children[t]) && !children[t].hasAttribute('data-ed-injected')) {
-        top.push(children[t]);
-      }
-    }
-    var removesAllTop = top.length > 0 && top.every(function (el) {
-      return targets.indexOf(el) >= 0;
-    });
-    if (removesAllTop && top.some(function (el) {
-      return isContainer(el) || el.children.length > 0;
-    })) {
-      return rejectDelete('不能删除全部页面根容器，请选择内部元素');
-    }
-    beforeChange('批量删除');
-    for (var k = 0; k < targets.length; k++) {
-      targets[k].classList.remove('ed-selected', 'ed-hover');
-      targets[k].remove();
-    }
-    syncAfterDelete();
-    return { ok: true, reason: '' };
+    hideToolbar();
+    selectedId = null;
+    selectedIds = [];
+    notifySelect(null);
+    notifySelectMulti(); // 批量删除后隐藏"已选 N 个"悬浮条
+    notifyChanged();
+    notifyLayerTree();
   }
   function multiDuplicate() {
     if (selectedIds.length === 0) return;
-    var elements = [];
+    beforeChange('批量复制');
+    var newIds = [];
     for (var i = 0; i < selectedIds.length; i++) {
       var el = findById(selectedIds[i]);
-      if (el) elements.push(el);
+      if (!el) continue;
+      var clone = el.cloneNode(true);
+      clone.removeAttribute(ID_ATTR);
+      clone.classList.remove('ed-selected', 'ed-hover');
+      if (el.parentNode) el.parentNode.insertBefore(clone, el.nextSibling);
+      assignId(clone);
+      newIds.push(clone.getAttribute(ID_ATTR));
     }
-    copyElements(elements);
+    deselectAll();
+    for (var k = 0; k < newIds.length; k++) {
+      var n = findById(newIds[k]);
+      if (n) { n.classList.add('ed-selected'); selectedIds.push(newIds[k]); }
+    }
+    if (newIds.length) { selectedId = newIds[newIds.length - 1]; var main = findById(selectedId); if (main) { showToolbar(main); notifySelect(buildInfo(main)); } }
+    notifySelectMulti(); // 同步批量复制后的多选数量
+    notifyChanged();
+    notifyLayerTree();
   }
 
   function replaceImageSrc(id, src) {
@@ -2601,40 +1133,18 @@ Error generating stack: `+o.message+`
   window.addEventListener('scroll', function () {
     if (selectedId && toolbar) {
       var el = findById(selectedId);
-      if (el) {
-        positionToolbar(el);
-        positionResizeHandles(el);
-      }
+      if (el) positionToolbar(el);
     }
   });
   window.addEventListener('resize', function () {
     if (selectedId && toolbar) {
       var el = findById(selectedId);
-      if (el) {
-        positionToolbar(el);
-        positionResizeHandles(el);
-      }
+      if (el) positionToolbar(el);
     }
-  });
-  window.addEventListener('pointermove', previewResize);
-  window.addEventListener('pointerup', finishResize);
-  window.addEventListener('pointercancel', cancelResize);
-  window.addEventListener('pointermove', updateFlowDrag, { passive: false });
-  window.addEventListener('pointerup', function (event) { finishFlowDrag(event, true); });
-  window.addEventListener('pointercancel', function (event) { finishFlowDrag(event, false); });
-  window.addEventListener('blur', function () {
-    cancelResize();
-    cancelFlowDrag();
   });
 
   // ============ 快捷键：iframe 内独立的撤销/重做/Delete（事件不冒泡到父窗口）============
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && (resizeSession || flowDragCandidate || flowDragSession)) {
-      e.preventDefault();
-      cancelResize();
-      cancelFlowDrag();
-      return;
-    }
     // 正在编辑文字时，所有快捷键让浏览器原生处理（contenteditable 编辑）
     if (editingId) return;
     var mod = e.ctrlKey || e.metaKey;
@@ -2649,6 +1159,10 @@ Error generating stack: `+o.message+`
       // 删除选中元素（多选时批量删除）
       e.preventDefault();
       if (selectedIds.length > 1) multiDelete(); else deleteEl(findById(selectedId));
+    } else if (mod && key === 'd' && selectedIds.length > 0) {
+      // Ctrl/Cmd+D 立即克隆一份到下方（多选时批量克隆）
+      e.preventDefault();
+      if (selectedIds.length > 1) multiDuplicate(); else duplicateEl(findById(selectedId));
     } else if (mod && key === 'c' && selectedIds.length > 0) {
       // Ctrl/Cmd+C 复制到内部剪贴板（不动文档）
       e.preventDefault();
@@ -2690,33 +1204,20 @@ Error generating stack: `+o.message+`
   }, true);
 
   // ============ 导出：清理编辑标记，返回干净 HTML ============
-  function getCleanHtml(preserveDraftState) {
+  function getCleanHtml() {
     // 注意：不要调用 deselectAll()，那会清除 selectedId 导致方向键等连续操作失效。
     // 只在克隆节点上清理编辑标记，不影响实际 DOM 的选中状态。
     var cloneDoc = document.documentElement.cloneNode(true);
     // 移除注入的 script / style / 工具条 / overlay
     var injected = cloneDoc.querySelectorAll('[data-ed-injected]');
     for (var i = 0; i < injected.length; i++) injected[i].remove();
-    // html/body 不参与 remarkAll，也可能在鼠标移动时带上编辑态 class，需单独清理。
-    var editing = cloneDoc.querySelectorAll('.ed-hover,.ed-selected,.ed-editing,.ed-table-column-selected,[contenteditable="true"]');
-    cloneDoc.classList.remove('ed-hover', 'ed-selected', 'ed-editing', 'ed-table-column-selected');
-    if (cloneDoc.getAttribute('contenteditable') === 'true') cloneDoc.removeAttribute('contenteditable');
-    if (cloneDoc.getAttribute('class') === '') cloneDoc.removeAttribute('class');
-    for (var e = 0; e < editing.length; e++) {
-      editing[e].classList.remove('ed-hover', 'ed-selected', 'ed-editing', 'ed-table-column-selected');
-      if (editing[e].getAttribute('contenteditable') === 'true') editing[e].removeAttribute('contenteditable');
-      if (editing[e].getAttribute('class') === '') editing[e].removeAttribute('class');
-    }
     // 移除标记属性
     var all = cloneDoc.querySelectorAll('[' + ID_ATTR + ']');
     for (var j = 0; j < all.length; j++) {
       all[j].removeAttribute(ID_ATTR);
-    }
-    if (!preserveDraftState) {
-      var lockedTables = cloneDoc.querySelectorAll('[' + TABLE_LOCK_ATTR + ']');
-      for (var k = 0; k < lockedTables.length; k++) {
-        lockedTables[k].removeAttribute(TABLE_LOCK_ATTR);
-      }
+      all[j].classList.remove('ed-hover', 'ed-selected', 'ed-editing');
+      if (all[j].getAttribute('contenteditable') === 'true') all[j].removeAttribute('contenteditable');
+      if (all[j].getAttribute('class') === '') all[j].removeAttribute('class');
     }
     return '<!doctype html>\n' + cloneDoc.outerHTML;
   }
@@ -2814,160 +1315,9 @@ Error generating stack: `+o.message+`
   }
 
   // ============ 文字样式（字号 / 颜色 / 模块色 / 背景色）============
-  function isPlainStyleSpan(span) {
-    if (!span || span.tagName !== 'SPAN') return false;
-    for (var i = 0; i < span.attributes.length; i++) {
-      var name = span.attributes[i].name;
-      if (name !== 'style' && name !== ID_ATTR) return false;
-    }
-    return true;
-  }
-
-  function unwrapSpan(span) {
-    var parent = span && span.parentNode;
-    if (!parent) return;
-    while (span.firstChild) parent.insertBefore(span.firstChild, span);
-    parent.removeChild(span);
-  }
-
-  function inlineStyleSignature(span) {
-    var parts = [];
-    for (var i = 0; i < span.style.length; i++) {
-      var name = span.style[i];
-      parts.push(name + ':' + span.style.getPropertyValue(name) + '!' +
-        span.style.getPropertyPriority(name));
-    }
-    return parts.sort().join(';');
-  }
-
-  function normalizeInlineSpans(root) {
-    if (!root) return;
-    var spans = Array.prototype.slice.call(root.querySelectorAll('span')).reverse();
-    for (var i = 0; i < spans.length; i++) {
-      var span = spans[i];
-      if (!span.isConnected || !root.contains(span)) continue;
-      if (!span.childNodes.length) {
-        span.remove();
-        continue;
-      }
-      if (isPlainStyleSpan(span) && !span.style.cssText.trim()) {
-        unwrapSpan(span);
-        continue;
-      }
-      var parent = span.parentElement;
-      if (isPlainStyleSpan(span) && isPlainStyleSpan(parent)) {
-        for (var p = span.style.length - 1; p >= 0; p--) {
-          var prop = span.style[p];
-          if (span.style.getPropertyValue(prop) === parent.style.getPropertyValue(prop) &&
-              span.style.getPropertyPriority(prop) === parent.style.getPropertyPriority(prop)) {
-            span.style.removeProperty(prop);
-          }
-        }
-        if (!span.style.cssText.trim()) {
-          unwrapSpan(span);
-          continue;
-        }
-        if (parent.childNodes.length === 1) {
-          for (var q = 0; q < parent.style.length; q++) {
-            var parentProp = parent.style[q];
-            if (!span.style.getPropertyValue(parentProp)) {
-              span.style.setProperty(parentProp, parent.style.getPropertyValue(parentProp),
-                parent.style.getPropertyPriority(parentProp));
-            }
-          }
-          parent.parentNode.replaceChild(span, parent);
-        }
-      }
-    }
-
-    var mergeCandidates = Array.prototype.slice.call(root.querySelectorAll('span'));
-    for (var m = 0; m < mergeCandidates.length; m++) {
-      var current = mergeCandidates[m];
-      if (!current.isConnected || !isPlainStyleSpan(current)) continue;
-      var next = current.nextSibling;
-      while (next && next.nodeType === 3 && next.data === '') {
-        var empty = next;
-        next = next.nextSibling;
-        empty.remove();
-      }
-      while (isPlainStyleSpan(next) &&
-             inlineStyleSignature(current) === inlineStyleSignature(next)) {
-        while (next.firstChild) current.appendChild(next.firstChild);
-        var removed = next;
-        next = next.nextSibling;
-        removed.remove();
-      }
-    }
-    if (root.normalize) root.normalize();
-  }
-
-  function applyStyleToTextRange(rootId, property, value, label, coalesce) {
-    var cached = validCachedTextRange(rootId);
-    if (!cached) return false;
-    if (coalesce) beforeChangeCoalesced(coalesce + ':' + rootId, label);
-    else beforeChange(label);
-
-    var range = cached.range;
-    var endMarker = document.createComment('ed-range-end');
-    var endRange = range.cloneRange();
-    endRange.collapse(false);
-    endRange.insertNode(endMarker);
-    var startMarker = document.createComment('ed-range-start');
-    var startRange = range.cloneRange();
-    startRange.collapse(true);
-    startRange.insertNode(startMarker);
-
-    var selectedRange = document.createRange();
-    selectedRange.setStartAfter(startMarker);
-    selectedRange.setEndBefore(endMarker);
-    var walker = document.createTreeWalker(cached.root, NodeFilter.SHOW_TEXT);
-    var nodes = [];
-    var node;
-    while ((node = walker.nextNode())) {
-      if (!node.data || !selectedRange.intersectsNode(node)) continue;
-      var parentTag = node.parentElement ? node.parentElement.tagName : '';
-      if (parentTag === 'SCRIPT' || parentTag === 'STYLE') continue;
-      nodes.push(node);
-    }
-
-    for (var i = nodes.length - 1; i >= 0; i--) {
-      var textNode = nodes[i];
-      if (!textNode.isConnected || !textNode.data) continue;
-      var span = document.createElement('span');
-      span.style.setProperty(property, value, 'important');
-      textNode.parentNode.insertBefore(span, textNode);
-      span.appendChild(textNode);
-    }
-
-    normalizeInlineSpans(cached.root);
-    var nextRange = document.createRange();
-    nextRange.setStartAfter(startMarker);
-    nextRange.setEndBefore(endMarker);
-    startMarker.remove();
-    endMarker.remove();
-    normalizeInlineSpans(cached.root);
-
-    if (!nextRange.collapsed &&
-        rangeNodeInside(cached.root, nextRange.startContainer) &&
-        rangeNodeInside(cached.root, nextRange.endContainer)) {
-      cachedTextRange = { rootId: rootId, range: nextRange.cloneRange() };
-      var selection = window.getSelection();
-      if (selection) {
-        selection.removeAllRanges();
-        selection.addRange(nextRange);
-      }
-    } else {
-      clearCachedTextRange();
-    }
-    notifyChanged();
-    notifySelect(buildInfo(cached.root));
-    return true;
-  }
-
   function setFontSize(id, px) {
     var el = findById(id);
     if (!el) return;
-    if (applyStyleToTextRange(id, 'font-size', px + 'px', '字号', null)) return;
     beforeChange();
     el.style.fontSize = px + 'px';
     notifyChanged();
@@ -2977,7 +1327,6 @@ Error generating stack: `+o.message+`
   function setTextColor(id, color) {
     var el = findById(id);
     if (!el) return;
-    if (applyStyleToTextRange(id, 'color', color, '文字颜色', 'text-range-color')) return;
     beforeChangeCoalesced('text-color:' + id, '文字颜色');
     el.style.color = color;
     notifyChangedDebounced();
@@ -3027,213 +1376,11 @@ Error generating stack: `+o.message+`
    *  【修复】被编辑的模板样式表里常带 text-align-last:center（甚至 !important），
    *  只设 text-align 时左/右对齐后"最后一行仍居中"；内联 !important 可压过样式表。 */
   function applyTextAlign(el, align) {
-    el.style.setProperty('text-align', align, 'important');
-    el.style.setProperty('text-align-last', align === 'justify' ? 'left' : align, 'important');
-  }
-
-  function formatTableColumnWidth(value) {
-    return String(Math.round(value * 10000) / 10000) + '%';
-  }
-
-  function ensureTableColumns(table, columnCount) {
-    var groups = [];
-    var children = table.children;
-    for (var i = 0; i < children.length; i++) {
-      if (children[i].tagName === 'COLGROUP') groups.push(children[i]);
-    }
-    if (!groups.length) {
-      var createdGroup = document.createElement('colgroup');
-      var caption = table.caption;
-      table.insertBefore(createdGroup, caption ? caption.nextSibling : table.firstChild);
-      groups.push(createdGroup);
-    }
-
-    // 原位展开 span，保留既有 colgroup 的 class、data 属性及分组结构。
-    var expanded = [];
-    for (var g = 0; g < groups.length; g++) {
-      var group = groups[g];
-      var cols = Array.prototype.slice.call(group.children);
-      if (!cols.length) {
-        var groupSpan = Math.max(1, parseInt(group.getAttribute('span'), 10) || 1);
-        group.removeAttribute('span');
-        for (var gs = 0; gs < groupSpan; gs++) {
-          var groupCol = document.createElement('col');
-          group.appendChild(groupCol);
-          expanded.push(groupCol);
-        }
-        continue;
-      }
-      group.removeAttribute('span');
-      for (var c = 0; c < cols.length; c++) {
-        if (cols[c].tagName !== 'COL') continue;
-        var span = Math.max(1, parseInt(cols[c].span, 10) || 1);
-        var source = cols[c];
-        source.removeAttribute('span');
-        expanded.push(source);
-        var anchor = source;
-        for (var s = 1; s < span; s++) {
-          var clone = source.cloneNode(false);
-          clone.removeAttribute('id');
-          clone.removeAttribute(ID_ATTR);
-          group.insertBefore(clone, anchor.nextSibling);
-          expanded.push(clone);
-          anchor = clone;
-        }
-      }
-    }
-    var appendGroup = groups[groups.length - 1];
-    while (expanded.length < columnCount) {
-      var col = document.createElement('col');
-      appendGroup.appendChild(col);
-      expanded.push(col);
-    }
-    return expanded.slice(0, columnCount);
-  }
-
-  function applyResponsiveTableStyle(table) {
-    table.style.setProperty('max-width', '100%');
-    table.style.setProperty('box-sizing', 'border-box');
-    table.style.setProperty('table-layout', 'fixed');
-    var cells = table.querySelectorAll('th,td');
-    for (var i = 0; i < cells.length; i++) {
-      if (cells[i].closest('table') !== table) continue;
-      cells[i].style.setProperty('min-width', '0');
-      cells[i].style.setProperty('overflow-wrap', 'anywhere');
-      cells[i].style.setProperty('word-break', 'break-word');
-    }
-    var media = table.querySelectorAll('img,video,svg,canvas,iframe');
-    for (var j = 0; j < media.length; j++) {
-      if (media[j].closest('table') !== table) continue;
-      media[j].style.setProperty('max-width', '100%');
-      media[j].style.setProperty('box-sizing', 'border-box');
-      if (media[j].tagName === 'IMG' || media[j].tagName === 'VIDEO') {
-        media[j].style.setProperty('height', 'auto');
-      }
-    }
-  }
-
-  /** 调整逻辑列集合；锁定列保持宽度，其余自由列均分剩余空间。 */
-  function setTableColumnWidth(tableId, cellId, columnIndexes, widthPercent, phase) {
-    var table = findById(tableId);
-    var cell = findById(cellId);
-    if (!table || table.tagName !== 'TABLE' || !cell ||
-        !/^(TD|TH)$/.test(cell.tagName) || cell.closest('table') !== table) return;
-    if (widthPercent == null || String(widthPercent).trim() === '') return;
-    var width = Number(widthPercent);
-    if (!Number.isFinite(width)) return;
-    var gridInfo = buildTableGrid(table);
-    var placement = findCellPlacement(gridInfo, cell);
-    if (!placement) return;
-    var selectedColumns = normalizeColumnIndexes(columnIndexes, gridInfo.columnCount);
-    if (!selectedColumns.length) {
-      selectedColumns = placementColumnIndexes(placement, gridInfo.columnCount);
-    }
-    var key = tableId + ':' + selectedColumns.join(',');
-    if (!tableColumnWidthSession || tableColumnWidthSession.key !== key) {
-      beforeChange('表格列宽');
-      tableColumnWidthSession = { key: key };
-    }
-    if (selectedColumns.length === gridInfo.columnCount) {
-      width = Math.max(5, Math.min(100, width));
-      table.style.setProperty('width', formatTableColumnWidth(width), 'important');
-    } else {
-      var widths = tableColumnWidths(table, gridInfo.columnCount);
-      var lockedColumns = sanitizeLockedColumnIndexes(table, gridInfo.columnCount, true);
-      var lockedOtherColumns = [];
-      var freeColumns = [];
-      for (var i = 0; i < gridInfo.columnCount; i++) {
-        if (selectedColumns.indexOf(i) >= 0) continue;
-        if (lockedColumns.indexOf(i) >= 0) lockedOtherColumns.push(i);
-        else freeColumns.push(i);
-      }
-      var lockedOtherWidth = sumColumnWidths(widths, lockedOtherColumns);
-      var minColumnWidth = Math.min(5, 100 / gridInfo.columnCount);
-      var minWidth = freeColumns.length
-        ? minColumnWidth * selectedColumns.length
-        : 100 - lockedOtherWidth;
-      var maxWidth = 100 - lockedOtherWidth - minColumnWidth * freeColumns.length;
-      width = Math.max(minWidth, Math.min(maxWidth, width));
-      var columns = ensureTableColumns(table, gridInfo.columnCount);
-      var nextWidths = widths.slice();
-      var selectedWidth = width / selectedColumns.length;
-      for (var s = 0; s < selectedColumns.length; s++) {
-        nextWidths[selectedColumns[s]] = selectedWidth;
-      }
-      if (freeColumns.length) {
-        var remaining = 100 - width - lockedOtherWidth;
-        var freeWidth = remaining / freeColumns.length;
-        var assigned = 0;
-        for (var f = 0; f < freeColumns.length; f++) {
-          var value = f === freeColumns.length - 1 ? remaining - assigned : freeWidth;
-          nextWidths[freeColumns[f]] = value;
-          assigned += value;
-        }
-      }
-      var adjustableLast = freeColumns.length
-        ? freeColumns[freeColumns.length - 1]
-        : selectedColumns[selectedColumns.length - 1];
-      var roundedWidths = nextWidths.map(function (value) {
-        return Math.round(value * 10000) / 10000;
-      });
-      var roundedTotal = roundedWidths.reduce(function (sum, value) { return sum + value; }, 0);
-      roundedWidths[adjustableLast] = Math.round(
-        (roundedWidths[adjustableLast] + 100 - roundedTotal) * 10000) / 10000;
-      for (var c = 0; c < columns.length; c++) {
-        columns[c].style.setProperty('width',
-          formatTableColumnWidth(roundedWidths[c]), 'important');
-      }
-    }
-    applyResponsiveTableStyle(table);
-    var main = findById(selectedId);
-    if (main) {
-      if (phase === 'preview' || phase === 'start') notifySelectEcho(main);
-      else notifySelect(buildInfo(main));
-    }
-    if (phase === 'preview' || phase === 'start') {
-      notifyChangedDebounced();
-    } else {
-      if (changedTimer) { clearTimeout(changedTimer); changedTimer = null; }
-      notifyChanged();
-      tableColumnWidthSession = null;
-    }
-  }
-
-  /** 混合选择统一锁定；全部已锁定时统一解锁。 */
-  function toggleTableColumnLock(tableId, columnIndexes) {
-    var table = findById(tableId);
-    if (!table || table.tagName !== 'TABLE') return;
-    var gridInfo = buildTableGrid(table);
-    var indexes = normalizeColumnIndexes(columnIndexes, gridInfo.columnCount);
-    if (!indexes.length) return;
-    var locked = sanitizeLockedColumnIndexes(table, gridInfo.columnCount, true);
-    var unlock = indexes.every(function (index) { return locked.indexOf(index) >= 0; });
-    beforeChange(unlock ? '解锁表格列' : '锁定表格列');
-    for (var i = 0; i < indexes.length; i++) {
-      var pos = locked.indexOf(indexes[i]);
-      if (unlock && pos >= 0) locked.splice(pos, 1);
-      else if (!unlock && pos < 0) locked.push(indexes[i]);
-    }
-    locked = normalizeColumnIndexes(locked, gridInfo.columnCount);
-    if (locked.length) table.setAttribute(TABLE_LOCK_ATTR, locked.join(','));
-    else table.removeAttribute(TABLE_LOCK_ATTR);
-    tableColumnWidthSession = null;
-    var main = findById(selectedId);
-    if (main) notifySelect(buildInfo(main));
-    notifySelectMulti();
-    notifyHistory();
-    notifyChanged();
+    el.style.textAlign = align;
+    el.style.setProperty('text-align-last', align, 'important');
   }
   /** 切换加粗（bold<->normal） */
   function toggleBold() {
-    var cached = validCachedTextRange();
-    if (cached) {
-      var styleTarget = selectedTextStyleElement(cached.root);
-      var selectedWeight = window.getComputedStyle(styleTarget).fontWeight;
-      var nextWeight = (selectedWeight === 'bold' || parseInt(selectedWeight, 10) >= 600)
-        ? 'normal' : 'bold';
-      if (applyStyleToTextRange(cached.root.getAttribute(ID_ATTR), 'font-weight',
-          nextWeight, '加粗', null)) return;
-    }
     applyStyleToTargets(function (el) {
       var w = window.getComputedStyle(el).fontWeight;
       el.style.fontWeight = (w === 'bold' || parseInt(w, 10) >= 600) ? 'normal' : 'bold';
@@ -3277,7 +1424,6 @@ Error generating stack: `+o.message+`
     if (!el) return;
     weight = String(weight || '').trim();
     if (!/^[1-9]00$/.test(weight)) return;
-    if (applyStyleToTextRange(id, 'font-weight', weight, '字重', 'text-range-weight')) return;
     beforeChangeCoalesced('font-weight:' + id, '字重');
     el.style.setProperty('font-weight', weight, 'important');
     notifyChangedDebounced();
@@ -3548,13 +1694,6 @@ Error generating stack: `+o.message+`
       case 'SET_TEXT_ALIGN':
         setTextAlign(msg.payload.align);
         break;
-      case 'SET_TABLE_COLUMN_WIDTH':
-        setTableColumnWidth(msg.payload.tableId, msg.payload.cellId,
-          msg.payload.columnIndexes, msg.payload.widthPercent, msg.payload.phase);
-        break;
-      case 'TOGGLE_TABLE_COLUMN_LOCK':
-        toggleTableColumnLock(msg.payload.tableId, msg.payload.columnIndexes);
-        break;
       case 'TOGGLE_BOLD':
         toggleBold();
         break;
@@ -3622,12 +1761,6 @@ Error generating stack: `+o.message+`
       case 'PASTE':
         pasteClipboard();
         break;
-      case 'SET_LAYOUT_SPACING':
-        setLayoutSpacing(msg.payload);
-        break;
-      case 'FIT_TO_CONTAINER':
-        fitElementToContainer(msg.payload && msg.payload.id);
-        break;
       case 'ZOOM_IN':
         setZoom(zoomLevel + 0.1);
         break;
@@ -3661,9 +1794,6 @@ Error generating stack: `+o.message+`
       case 'GET_HTML':
         HOST.postMessage({ source: 'ed-editor', type: 'RESULT_HTML', payload: getCleanHtml() }, '*');
         break;
-      case 'GET_DRAFT_HTML':
-        HOST.postMessage({ source: 'ed-editor', type: 'RESULT_DRAFT_HTML', payload: getCleanHtml(true) }, '*');
-        break;
       case 'UNDO':
         undo();
         break;
@@ -3685,7 +1815,6 @@ Error generating stack: `+o.message+`
     }
     remarkAll();
     document.addEventListener('click', handleClick, true);
-    document.addEventListener('pointerdown', beginFlowDragCandidate, true);
     // 左键点击画布时通知父窗口（用于关闭右键菜单——iframe 内的点击不会冒泡到父窗口）
     document.addEventListener('mousedown', function (e) {
       if (e.button === 0) {
@@ -3696,13 +1825,10 @@ Error generating stack: `+o.message+`
     document.addEventListener('contextmenu', handleContext, true);
     document.addEventListener('mouseover', handleMouseOver, true);
     document.addEventListener('mouseout', handleMouseOut, true);
-    document.addEventListener('selectionchange', cacheCurrentTextRange);
-    document.addEventListener('mouseup', cacheCurrentTextRange, true);
-    document.addEventListener('keyup', cacheCurrentTextRange, true);
     // 阻止页面内链接跳转，避免误操作
     document.addEventListener('submit', function (e) { e.preventDefault(); }, true);
 
-    notifyHistory();
+    pushHistory(); // 初始状态
     notifyLayerTree(); // 初始层级树（G13）
     HOST.postMessage({ source: 'ed-editor', type: 'READY' }, '*');
   }
@@ -3939,103 +2065,6 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
     return function(){ swaps.forEach(function(s){ if(s.img.parentNode) s.img.parentNode.removeChild(s.img); s.v.style.display=s.pd; }); };
   }
-
-  function waitFrames(win,count){
-    return new Promise(function(resolve){
-      function next(){ if(count--<=0)return resolve(); win.requestAnimationFrame(next); }
-      next();
-    });
-  }
-  function waitFonts(doc){
-    try{
-      if(doc.fonts&&doc.fonts.ready){
-        return Promise.race([
-          doc.fonts.ready.catch(function(){}),
-          new Promise(function(resolve){setTimeout(resolve,3000);})
-        ]);
-      }
-    }catch(e){}
-    return Promise.resolve();
-  }
-  function waitImages(root){
-    var images=[].slice.call(root.querySelectorAll('img'));
-    if(!images.length)return Promise.resolve();
-    var jobs=images.map(function(img){
-      if(img.decode)return img.decode().catch(function(){});
-      if(img.complete)return Promise.resolve();
-      return new Promise(function(resolve){
-        var done=function(){img.removeEventListener('load',done);img.removeEventListener('error',done);resolve();};
-        img.addEventListener('load',done);img.addEventListener('error',done);
-      });
-    });
-    return Promise.race([
-      Promise.all(jobs),
-      new Promise(function(resolve){setTimeout(resolve,4000);})
-    ]);
-  }
-  function readCaptureSize(poster){
-    var r=poster.getBoundingClientRect();
-    return {
-      width:Math.max(1,Math.ceil(Math.max(r.width,poster.scrollWidth))),
-      height:Math.max(1,Math.ceil(Math.max(r.height,poster.scrollHeight)))
-    };
-  }
-  function waitStableLayout(ifr,poster){
-    var win=ifr.contentWindow, last=null, same=0, checks=0;
-    return new Promise(function(resolve){
-      function check(){
-        var size=readCaptureSize(poster);
-        if(last&&last.width===size.width&&last.height===size.height)same++;else same=0;
-        last=size; checks++;
-        if(same>=1||checks>=6)return resolve(size);
-        win.requestAnimationFrame(check);
-      }
-      win.requestAnimationFrame(check);
-    });
-  }
-  function prepareCapture(ifr,poster){
-    var doc=ifr.contentDocument, win=ifr.contentWindow;
-    return waitFonts(doc)
-      .then(function(){return waitImages(poster);})
-      .then(function(){return waitFrames(win,2);})
-      .then(function(){return waitStableLayout(ifr,poster);});
-  }
-  function capturePoster(ifr,poster,win){
-    var doc=ifr.contentDocument;
-    var zoomStyle=doc.getElementById('ed-zoom-style');
-    var zoomText=zoomStyle?zoomStyle.textContent:'';
-    if(zoomStyle)zoomStyle.textContent='';
-    function restoreZoom(){if(zoomStyle&&zoomStyle.isConnected)zoomStyle.textContent=zoomText;}
-    return prepareCapture(ifr,poster).then(function(size){
-      var s=Math.min(2,Math.max(0.3,32000/size.height));
-      return win.html2canvas(poster,{
-        scale:s,backgroundColor:'#dcedff',useCORS:true,logging:false,
-        width:size.width,height:size.height,windowWidth:size.width,windowHeight:size.height,
-        ignoreElements:function(el){return el.hasAttribute&&el.hasAttribute('data-ed-injected');},
-        onclone:function(d){
-          var zoom=d.getElementById('ed-zoom-style'); if(zoom)zoom.remove();
-          var ns=d.querySelectorAll('.ed-hover,.ed-selected,.ed-editing');
-          for(var i=0;i<ns.length;i++){ns[i].classList.remove('ed-hover','ed-selected','ed-editing');ns[i].removeAttribute('contenteditable');}
-          var clonePoster=d.querySelector('.poster')||d.body;
-          if(clonePoster){
-            clonePoster.style.setProperty('width',size.width+'px','important');
-            clonePoster.style.setProperty('min-height',size.height+'px','important');
-            clonePoster.style.setProperty('box-sizing','border-box','important');
-          }
-          d.documentElement.style.setProperty('width',size.width+'px','important');
-          d.body.style.setProperty('width',size.width+'px','important');
-        }
-      }).then(function(canvas){
-        return {canvas:canvas,scale:s,cssWidth:size.width,cssHeight:size.height};
-      });
-    }).then(function(result){
-      restoreZoom();
-      return result;
-    },function(error){
-      restoreZoom();
-      throw error;
-    });
-  }
   function exportPng(btn){
     var ifr=findIframe(), poster=getPoster(ifr);
     if(!ifr||!poster){ alert('请先加载或编辑一个页面再导出图片'); return; }
@@ -4046,9 +2075,15 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     ensureH2C(ifr).then(function(win){
       return flattenHeroOverlay(ifr.contentDocument).then(function(rf){ restore=rf;
         vrestore=swapVideosForPosters(ifr.contentDocument);
-        return capturePoster(ifr,poster,win);
+        var h=poster.scrollHeight, s=Math.min(2,Math.max(0.3,32000/h));
+        return win.html2canvas(poster,{scale:s,backgroundColor:'#dcedff',useCORS:true,logging:false,
+          windowWidth:poster.scrollWidth, windowHeight:h,
+          ignoreElements:function(el){ return el.hasAttribute&&el.hasAttribute('data-ed-injected'); },
+          onclone:function(d){ var ns=d.querySelectorAll('.ed-hover,.ed-selected,.ed-editing');
+            for(var i=0;i<ns.length;i++){ ns[i].classList.remove('ed-hover','ed-selected','ed-editing'); ns[i].removeAttribute('contenteditable'); } }
+        });
       });
-    }).then(function(result){ if(vrestore)vrestore(); if(restore)restore(); download(result.canvas, base+'.png'); btn.textContent=label; btn.disabled=false; })
+    }).then(function(c){ if(vrestore)vrestore(); if(restore)restore(); download(c, base+'.png'); btn.textContent=label; btn.disabled=false; })
       .catch(function(e){ if(vrestore)vrestore(); if(restore)restore(); console.error(e); alert('导出图片失败：'+((e&&e.message)||e)); btn.textContent=label; btn.disabled=false; });
   }
   function makeBtn(){
@@ -4071,8 +2106,6 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     ensureH2C: ensureH2C,
     flattenHeroOverlay: flattenHeroOverlay,
     swapVideosForPosters: swapVideosForPosters,
-    prepareCapture: prepareCapture,
-    capturePoster: capturePoster,
     findIframe: findIframe,
     getPoster: getPoster,
     download: download
@@ -4210,7 +2243,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 .ed-s-btn.ed-s-primary{background:#165dff;color:#fff;border-color:#165dff;}
 .ed-slice-tip{font-size:11px;color:#86909c;line-height:1.6;}
 .ed-slice-pwrap{display:flex;overflow:auto;max-height:56vh;background:#f5f6f8;border-radius:8px;padding:8px;gap:6px;}
-.ed-slice-ruler{flex:0 0 auto;background:#fff;border:0;border-radius:4px;box-shadow:inset 0 0 0 1px #e4e6eb;}
+.ed-slice-ruler{flex:0 0 auto;background:#fff;border:1px solid #e4e6eb;border-radius:4px;}
 .ed-slice-pvwrap{position:relative;flex:0 0 auto;}
 .ed-slice-pv{display:block;}
 .ed-slice-pvwrap.manual .ed-slice-pv{cursor:crosshair;}
@@ -4220,54 +2253,16 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 .ed-slice-line .ed-slice-tag{position:absolute;right:2px;top:-16px;background:#f53f3f;color:#fff;font-size:10px;padding:1px 5px;border-radius:3px;white-space:nowrap;}
 </style>
 <style id="ed-toolbar-tune">
-/* 顶栏按用途归组；窄屏时功能区横向滚动，不覆盖画布 */
-.toolbar{height:auto;min-height:52px;padding:4px 10px;gap:8px;flex-wrap:nowrap;overflow:hidden}
-.toolbar-left,.toolbar-center,.toolbar-right{gap:4px;flex-wrap:nowrap}
-.toolbar-left.ed-toolbar-identity{flex:0 0 auto}
-.toolbar-center:empty{display:none}
-.toolbar-right.ed-toolbar-groups{display:flex;flex:1 1 auto;min-width:0;align-items:stretch;justify-content:flex-start;gap:6px;overflow-x:auto;overflow-y:hidden;padding-bottom:2px;scrollbar-width:thin}
-.toolbar-right.ed-toolbar-groups::-webkit-scrollbar{height:4px}
-.toolbar-right.ed-toolbar-groups::-webkit-scrollbar-thumb{background:#c9cdd4;border-radius:4px}
-.ed-toolbar-group{position:relative;display:flex;flex:0 0 auto;align-items:flex-end;gap:3px;min-height:42px;padding:15px 5px 3px;border:1px solid var(--border);border-radius:7px;background:var(--bg-app)}
-.ed-toolbar-group:before{content:attr(data-label);position:absolute;left:6px;top:3px;color:var(--text-tertiary);font-size:9px;line-height:10px;letter-spacing:.4px}
-.ed-toolbar-group[data-group="danger"]{border-color:#ffccc7;background:#fff7f6}
-.ed-toolbar-group[data-group="danger"]:before{color:#cf1322}
-.ed-toolbar-group[data-group="danger"] .btn{color:var(--danger);border-color:#ffccc7;background:#fff}
-.ed-toolbar-group[data-group="danger"] .btn:hover:not(:disabled){background:var(--danger-bg);border-color:var(--danger)}
+/* 顶栏紧凑化：缩小按钮/文字，让更多按钮放得下；空间不足时自动换成两排 */
+.toolbar{height:auto;min-height:46px;padding:4px 10px;gap:6px;flex-wrap:wrap;row-gap:4px}
+.toolbar-left,.toolbar-center,.toolbar-right{gap:4px;flex-wrap:wrap}
+.toolbar-center{gap:2px}
 .btn{padding:4px 8px;font-size:12px;gap:4px}
 .btn svg{width:13px;height:13px}
 .brand-logo{font-size:16px}
 .brand-name{font-size:13px}
 .file-name{font-size:12px;padding:3px 8px;max-width:150px}
 .toolbar-divider{height:18px;margin:0 2px}
-@media(max-width:900px){
-  .toolbar{padding-right:5px}
-  .toolbar-left.ed-toolbar-identity .brand-name{display:none}
-  .toolbar-left.ed-toolbar-identity .file-name{max-width:92px}
-}
-.ed-layout-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
-.ed-layout-head h4{margin:0}
-.ed-layout-fit{height:24px;padding:0 8px;font-size:11px}
-.ed-box-links{display:flex;justify-content:center;gap:4px;margin-bottom:7px}
-.ed-box-link{min-width:42px;height:23px;padding:0 5px;font-size:11px}
-.ed-box-model{position:relative;height:180px;border:1px solid #e8b96b;border-radius:8px;background:#fff7e8;user-select:none}
-.ed-box-caption{position:absolute;left:7px;top:5px;font-size:9px;line-height:1;color:#ad6800;text-transform:uppercase;letter-spacing:.3px;pointer-events:none}
-.ed-box-padding{position:absolute;inset:40px 43px;border:1px solid #8bcf9a;border-radius:6px;background:#eefbf1}
-.ed-box-padding>.ed-box-caption{color:#237804}
-.ed-box-content{position:absolute;inset:31px 34px;display:flex;align-items:center;justify-content:center;border:1px solid #91caff;border-radius:4px;background:#e6f4ff;color:#0958d9;font-size:10px;font-weight:600;white-space:nowrap}
-.ed-box-edge{position:absolute;z-index:2;min-width:35px;height:22px;padding:0 4px;border:1px solid rgba(78,89,105,.22);border-radius:4px;background:rgba(255,255,255,.92);box-shadow:0 1px 2px rgba(0,0,0,.05);font-size:10px;font-variant-numeric:tabular-nums;line-height:20px;color:var(--text-secondary);touch-action:none}
-.ed-box-edge:hover{border-color:var(--accent);color:var(--accent)}
-.ed-box-edge:after{content:"";display:inline-block;width:3px;height:9px;margin-left:3px;border-left:1px dotted currentColor;vertical-align:-1px;opacity:.7}
-.ed-box-edge.ed-box-top{top:5px;left:50%;transform:translateX(-50%);cursor:ns-resize}
-.ed-box-edge.ed-box-right{right:5px;top:50%;transform:translateY(-50%);cursor:ew-resize}
-.ed-box-edge.ed-box-bottom{bottom:5px;left:50%;transform:translateX(-50%);cursor:ns-resize}
-.ed-box-edge.ed-box-left{left:5px;top:50%;transform:translateY(-50%);cursor:ew-resize}
-.ed-box-padding>.ed-box-edge.ed-box-top{top:3px}
-.ed-box-padding>.ed-box-edge.ed-box-right{right:3px}
-.ed-box-padding>.ed-box-edge.ed-box-bottom{bottom:3px}
-.ed-box-padding>.ed-box-edge.ed-box-left{left:3px}
-.ed-box-edge input{width:52px;height:20px;margin:-1px -3px;padding:1px 3px;border:1px solid var(--accent);border-radius:3px;font-size:10px;outline:none}
-.ed-box-edge:has(input):after{display:none}
 </style>
 <script id="ed-slice-runtime">
 (function(){
@@ -4280,7 +2275,6 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   var cssW=0, cssH=0;           // 页面尺寸（CSS 像素，整数）
   var cuts=[];                  // 分割线 y 坐标（CSS 像素整数，升序，避免半像素）
   var previewScale=1;           // CSS 像素 → 预览像素
-  var previewDpr=1;             // 仅用于预览 Canvas 清晰度
   var manualMode=false;         // 手动拉线模式
   var maskEl=null, pvCanvas=null, rulerCanvas=null, pvwrap=null, linesBox=null, statusEl=null;
   var sizeCache={};
@@ -4299,21 +2293,23 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   function renderFull(){
     var ifr=findIframe(), poster=H().getPoster(ifr);
     if(!ifr||!poster) return Promise.reject(new Error('请先加载或编辑一个页面再切图'));
-    var restore=null, vrestore=null;
+    var restore=null, vrestore=null, scaleUsed=1;
     return H().ensureH2C(ifr).then(function(win){
       return H().flattenHeroOverlay(ifr.contentDocument).then(function(rf){
         restore=rf;
         vrestore=H().swapVideosForPosters(ifr.contentDocument);
-        return H().capturePoster(ifr,poster,win);
+        var h=poster.scrollHeight, s=Math.min(2,Math.max(0.3,32000/h));
+        scaleUsed=s;
+        return win.html2canvas(poster,{scale:s,backgroundColor:'#dcedff',useCORS:true,logging:false,
+          windowWidth:poster.scrollWidth, windowHeight:h,
+          ignoreElements:function(el){ return el.hasAttribute&&el.hasAttribute('data-ed-injected'); },
+          onclone:function(d){ var ns=d.querySelectorAll('.ed-hover,.ed-selected,.ed-editing');
+            for(var i=0;i<ns.length;i++){ ns[i].classList.remove('ed-hover','ed-selected','ed-editing'); ns[i].removeAttribute('contenteditable'); } }
+        });
       });
-    }).then(function(result){
+    }).then(function(c){
       if(vrestore)vrestore(); if(restore)restore();
-      return {
-        canvas: result.canvas,
-        scale: result.scale,
-        cssWidth: result.cssWidth,
-        cssHeight: result.cssHeight
-      };
+      return { canvas: c, scale: scaleUsed };
     }, function(e){ if(vrestore)vrestore(); if(restore)restore(); throw e; });
   }
 
@@ -4338,12 +2334,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     var cands=[],run=0,start=0;
     for(var y=0;y<h;y++){
       if(blank[y]){ if(!run) start=y; run++; }
-      else {
-        if(run/devScale>=4) cands.push(deviceToCssY((start+y-1)/2));
-        run=0;
-      }
+      else { if(run>=4) cands.push(Math.round((start+y-1)/2/devScale)); run=0; }
     }
-    if(run/devScale>=4) cands.push(deviceToCssY((start+h-1)/2));
+    if(run>=4) cands.push(Math.round((start+h-1)/2/devScale));
     return cands.filter(function(y){ return y>10&&y<cssH-10; });
   }
   function nearestCand(y0,y1,cands){
@@ -4357,19 +2350,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
   // ---- 切片编码：PNG 优先；超 2MB 自动转 JPEG 递降质量 ----
   // 入参 y0/y1 为整数 CSS 像素，换算到设备像素后切割（不产生半像素）
-  function clampCssY(y){ return Math.max(0,Math.min(cssH,Math.round(y))); }
-  function cssToDeviceY(y){ return Math.round(clampCssY(y)*devScale); }
-  function deviceToCssY(y){ return clampCssY(y/devScale); }
-  function cssToPreviewY(y){ return clampCssY(y)*previewScale; }
-  function previewToCssY(y){ return clampCssY(y/previewScale); }
-  function eventToCssY(e,el){
-    var rect=el.getBoundingClientRect();
-    if(!rect.height) return 0;
-    var previewY=(e.clientY-rect.top)*cssToPreviewY(cssH)/rect.height;
-    return previewToCssY(previewY);
-  }
   function sliceCanvas(cv,y0,y1){
-    var dy0=cssToDeviceY(y0), dy1=cssToDeviceY(y1);
+    var dy0=Math.round(y0*devScale), dy1=Math.round(y1*devScale);
     var c=document.createElement('canvas');
     c.width=cv.width; c.height=Math.max(1,dy1-dy0);
     c.getContext('2d').drawImage(cv,0,dy0,cv.width,dy1-dy0,0,0,cv.width,dy1-dy0);
@@ -4415,30 +2397,19 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
 
   // ---- 预览、PS 标尺与分割线 ----
-  function preparePreviewCanvas(canvas,cssWidth,cssHeight){
-    canvas.style.width=cssWidth+'px';
-    canvas.style.height=cssHeight+'px';
-    canvas.width=Math.max(1,Math.round(cssWidth*previewDpr));
-    canvas.height=Math.max(1,Math.round(cssHeight*previewDpr));
-    var ctx=canvas.getContext('2d');
-    ctx.setTransform(previewDpr,0,0,previewDpr,0,0);
-    return ctx;
-  }
   function drawPreview(){
-    var previewW=Math.min(PV_W,cssW);
-    var previewH=cssH*(previewW/cssW);
-    previewScale=previewW/cssW;
-    previewDpr=Math.max(1,window.devicePixelRatio||1);
-    var ctx=preparePreviewCanvas(pvCanvas,previewW,previewH);
-    ctx.clearRect(0,0,previewW,previewH);
-    ctx.drawImage(big,0,0,big.width,big.height,0,0,previewW,previewH);
+    previewScale=PV_W/cssW;
+    pvCanvas.width=PV_W;
+    pvCanvas.height=Math.round(cssH*previewScale);
+    pvCanvas.getContext('2d').drawImage(big,0,0,pvCanvas.width,pvCanvas.height);
     drawRuler();
     drawLines();
   }
   // PS 式标尺：左侧竖向刻度（CSS 像素），随内容滚动
   function drawRuler(){
-    var h=cssToPreviewY(cssH);
-    var x=preparePreviewCanvas(rulerCanvas,44,h);
+    var h=pvCanvas.height;
+    rulerCanvas.width=44; rulerCanvas.height=h;
+    var x=rulerCanvas.getContext('2d');
     x.fillStyle='#fff'; x.fillRect(0,0,44,h);
     var step=50;
     while(step*previewScale<22) step*=2; // 缩得越小刻度越稀（50/100/200…）
@@ -4446,7 +2417,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     x.strokeStyle='#c9cdd4'; x.fillStyle='#86909c'; x.font='9px sans-serif'; x.textAlign='right';
     x.beginPath();
     for(var y=0;y<=cssH;y+=minor){
-      var py=Math.round(cssToPreviewY(y))+0.5;
+      var py=Math.round(y*previewScale)+0.5;
       var isMajor=(y%step===0);
       x.moveTo(isMajor?30:38,py);
       x.lineTo(43,py);
@@ -4460,17 +2431,18 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       var line=document.createElement('div');
       line.className='ed-slice-line';
       line.style.width='100%';
-      line.style.top=Math.round(cssToPreviewY(y))+'px';
+      line.style.top=Math.round(y*previewScale)+'px';
       line.innerHTML='<span class="ed-slice-tag">切点 '+(idx+1)+' · '+y+'px（双击删除）</span>';
       line.addEventListener('dblclick',function(e){ e.stopPropagation(); cuts.splice(cuts.indexOf(y),1); drawLines(); refreshStatus(); });
       line.addEventListener('mousedown',function(e){
         e.preventDefault(); e.stopPropagation();
+        var wrapRect=linesBox.getBoundingClientRect();
         var tag=line.querySelector('.ed-slice-tag');
         function mm(ev){
-          var ny=eventToCssY(ev,linesBox);
+          var ny=Math.round((ev.clientY-wrapRect.top)/previewScale);
           ny=Math.max(10,Math.min(cssH-10,ny));
           cuts[cuts.indexOf(y)]=ny; y=ny;
-          line.style.top=Math.round(cssToPreviewY(ny))+'px';
+          line.style.top=Math.round(ny*previewScale)+'px';
           if(tag) tag.textContent='切点 '+(idx+1)+' · '+ny+'px（双击删除）';
         }
         function mu(){ window.removeEventListener('mousemove',mm); window.removeEventListener('mouseup',mu); refreshStatus(); }
@@ -4618,14 +2590,15 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     // 手动模式：点击预览添加分割线（整数 CSS 像素）
     pvCanvas.addEventListener('click',function(e){
       if(!big||!manualMode) return;
-      var y=eventToCssY(e,pvCanvas);
+      var r=pvCanvas.getBoundingClientRect();
+      var y=Math.round((e.clientY-r.top)/previewScale);
       if(y>10&&y<cssH-10){ cuts.push(y); drawLines(); refreshStatus(); }
     });
     renderFull().then(function(r){
       big=r.canvas;
       devScale=r.scale||1;
-      cssW=Math.round(r.cssWidth||big.width/devScale);
-      cssH=Math.round(r.cssHeight||big.height/devScale);
+      cssW=Math.round(big.width/devScale);
+      cssH=Math.round(big.height/devScale);
       drawPreview();
       autoBtn.disabled=false; manualBtn.disabled=false; clearBtn.disabled=false; exportBtn.disabled=false; exportZipBtn.disabled=false;
       setStatus('整页渲染完成（'+cssW+'×'+cssH+'px）。点「自动分析切图」或「➕ 手动拉线」。');
@@ -4673,485 +2646,6 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   function ensureToolbarRight() {
     return document.querySelector('.toolbar-right');
   }
-
-  // ============ 表格列宽属性区 / 对齐提示 ============
-  var latestTableInfo = null;
-  function sendTableColumnWidth(value, phase) {
-    if (!latestTableInfo) return;
-    postToIframe({
-      source: 'ed-host',
-      type: 'SET_TABLE_COLUMN_WIDTH',
-      payload: {
-        tableId: latestTableInfo.tableId,
-        cellId: latestTableInfo.cellId,
-        columnIndexes: latestTableInfo.columnIndexes,
-        widthPercent: value,
-        phase: phase || 'commit',
-      },
-    });
-  }
-  function toggleTableColumnLock() {
-    if (!latestTableInfo) return;
-    postToIframe({
-      source: 'ed-host',
-      type: 'TOGGLE_TABLE_COLUMN_LOCK',
-      payload: {
-        tableId: latestTableInfo.tableId,
-        columnIndexes: latestTableInfo.columnIndexes,
-      },
-    });
-  }
-  function tableColumnHint() {
-    if (!latestTableInfo) return '';
-    var indexes = latestTableInfo.columnIndexes || [];
-    if (latestTableInfo.mode === 'table') {
-      return '已选全部 ' + latestTableInfo.columnCount + ' 列；调整当前表格整体宽度，列比例保持不变';
-    }
-    var names = indexes.map(function (index) { return index + 1; }).join('、');
-    var locked = latestTableInfo.lockedColumnIndexes || [];
-    var rest = latestTableInfo.columnCount - indexes.length;
-    return '已选第 ' + names + ' 列，共 ' + indexes.length + ' 列；其他 ' + rest +
-      ' 列中，未锁定列自动填充剩余宽度' +
-      (locked.length ? '（已锁定第 ' + locked.map(function (index) { return index + 1; }).join('、') + ' 列）' : '');
-  }
-  function ensureTextAlignTitle() {
-    var rows = document.querySelectorAll('.property-panel .style-row');
-    for (var i = 0; i < rows.length; i++) {
-      var label = rows[i].querySelector('.style-label');
-      if (!label || label.textContent.trim() !== '对齐') continue;
-      var buttons = rows[i].querySelectorAll('button');
-      if (buttons.length >= 4) {
-        buttons[3].title = '两端对齐，最后一行左对齐';
-        buttons[3].setAttribute('aria-label', '两端对齐，最后一行左对齐');
-      }
-    }
-  }
-  function ensureTableWidthPanel() {
-    var old = document.getElementById('ed-table-width-panel');
-    var panel = document.querySelector('.property-panel');
-    if (!panel || !latestTableInfo || latestTableInfo.editable === false) {
-      if (old) old.remove();
-      return;
-    }
-    var minWidth = parseFloat(latestTableInfo.minWidthPercent) || 5;
-    var maxWidth = parseFloat(latestTableInfo.maxWidthPercent) || 100;
-    var width = Math.max(minWidth, Math.min(maxWidth,
-      Math.round((parseFloat(latestTableInfo.widthPercent) || minWidth) * 100) / 100));
-    if (old) {
-      var oldRange = old.querySelector('input[type="range"]');
-      var oldNum = old.querySelector('input[type="number"]');
-      var oldHint = old.querySelector('.ed-table-width-hint');
-      var oldTitle = old.querySelector('h4');
-      var oldLabel = old.querySelector('.style-label');
-      var oldLock = old.querySelector('.ed-table-lock-btn');
-      if (oldRange) {
-        oldRange.min = minWidth; oldRange.max = maxWidth;
-        if (document.activeElement !== oldRange) oldRange.value = width;
-      }
-      if (oldNum) {
-        oldNum.min = minWidth; oldNum.max = maxWidth;
-        if (document.activeElement !== oldNum) oldNum.value = width;
-      }
-      var hintText = tableColumnHint();
-      if (oldHint && oldHint.textContent !== hintText) oldHint.textContent = hintText;
-      if (oldTitle) oldTitle.textContent = latestTableInfo.mode === 'table' ? '表格宽度' : '表格列宽';
-      if (oldLabel) oldLabel.textContent = latestTableInfo.mode === 'table' ? '当前表格' : '选中列';
-      if (oldLock) oldLock.textContent = latestTableInfo.allSelectedLocked ? '解锁选中列' : '锁定选中列';
-      return;
-    }
-    var section = document.createElement('div');
-    section.id = 'ed-table-width-panel';
-    section.className = 'panel-section';
-    var title = document.createElement('h4');
-    title.textContent = latestTableInfo.mode === 'table' ? '表格宽度' : '表格列宽';
-    var row = document.createElement('div');
-    row.className = 'style-row';
-    var label = document.createElement('span');
-    label.className = 'style-label';
-    label.textContent = latestTableInfo.mode === 'table' ? '当前表格' : '选中列';
-    var ctrl = document.createElement('div');
-    ctrl.style.cssText = 'display:grid;grid-template-columns:minmax(80px,1fr) 62px 16px;gap:6px;align-items:center;flex:1';
-    var range = document.createElement('input');
-    range.type = 'range'; range.min = minWidth; range.max = maxWidth; range.step = '0.1'; range.value = width;
-    range.title = latestTableInfo.mode === 'table'
-      ? '当前表格占父容器宽度的百分比' : '选中列占表格宽度的百分比';
-    var num = document.createElement('input');
-    num.type = 'number'; num.min = minWidth; num.max = maxWidth; num.step = '0.1'; num.value = width;
-    num.className = 'input';
-    num.style.cssText = 'width:62px;padding:5px 6px';
-    var unit = document.createElement('span');
-    unit.textContent = '%';
-    var hint = document.createElement('div');
-    hint.className = 'ed-table-width-hint';
-    hint.style.cssText = 'margin:7px 0 0 72px;color:var(--text-secondary);font-size:11px';
-    hint.textContent = tableColumnHint();
-    var lockRow = document.createElement('div');
-    lockRow.style.cssText = 'margin:8px 0 0 72px';
-    var lockBtn = document.createElement('button');
-    lockBtn.type = 'button';
-    lockBtn.className = 'btn ed-table-lock-btn';
-    lockBtn.textContent = latestTableInfo.allSelectedLocked ? '解锁选中列' : '锁定选中列';
-    lockBtn.title = '锁定列不会参与其他列调整时的自动宽度分配';
-    lockBtn.addEventListener('click', toggleTableColumnLock);
-    lockRow.appendChild(lockBtn);
-    var started = false;
-    var numberStarted = false;
-    range.addEventListener('input', function () {
-      num.value = range.value;
-      sendTableColumnWidth(range.value, started ? 'preview' : 'start');
-      started = true;
-    });
-    range.addEventListener('change', function () {
-      sendTableColumnWidth(range.value, 'commit');
-      started = false;
-    });
-    num.addEventListener('input', function () {
-      var value = parseFloat(num.value);
-      if (!isFinite(value)) return;
-      value = Math.max(parseFloat(num.min), Math.min(parseFloat(num.max), value));
-      range.value = value;
-      sendTableColumnWidth(value, numberStarted ? 'preview' : 'start');
-      numberStarted = true;
-    });
-    num.addEventListener('change', function () {
-      var value = Math.max(parseFloat(num.min), Math.min(parseFloat(num.max),
-        parseFloat(num.value) || parseFloat(num.min)));
-      num.value = value; range.value = value;
-      sendTableColumnWidth(value, 'commit');
-      numberStarted = false;
-    });
-    num.addEventListener('keydown', function (event) {
-      if (event.key === 'Enter') num.blur();
-    });
-    ctrl.appendChild(range); ctrl.appendChild(num); ctrl.appendChild(unit);
-    row.appendChild(label); row.appendChild(ctrl);
-    section.appendChild(title); section.appendChild(row); section.appendChild(hint); section.appendChild(lockRow);
-    var firstSection = panel.querySelector('.panel-section');
-    if (firstSection && firstSection.nextSibling) panel.insertBefore(section, firstSection.nextSibling);
-    else panel.appendChild(section);
-  }
-
-  // ============ 容器与元素布局属性区 ============
-  var latestLayoutInfo = null;
-  var latestSelectedId = null;
-  var layoutLinkState = {
-    marginVertical: false,
-    marginHorizontal: false,
-    paddingVertical: false,
-    paddingHorizontal: false,
-  };
-  var activeLayoutCancel = null;
-  function layoutLinkKey(prop) {
-    var prefix = prop.indexOf('margin') === 0 ? 'margin' : 'padding';
-    var axis = /Top|Bottom$/.test(prop) ? 'Vertical' : 'Horizontal';
-    return prefix + axis;
-  }
-  function linkedLayoutProp(prop) {
-    var pairs = {
-      marginTop: 'marginBottom', marginBottom: 'marginTop',
-      marginLeft: 'marginRight', marginRight: 'marginLeft',
-      paddingTop: 'paddingBottom', paddingBottom: 'paddingTop',
-      paddingLeft: 'paddingRight', paddingRight: 'paddingLeft',
-    };
-    return layoutLinkState[layoutLinkKey(prop)] ? pairs[prop] : null;
-  }
-  function sendLayoutSpacing(prop, value, phase, targetId) {
-    targetId = targetId || latestSelectedId;
-    if (!targetId) return;
-    var values = {};
-    values[prop] = value;
-    var linked = linkedLayoutProp(prop);
-    if (linked) values[linked] = value;
-    postToIframe({
-      source: 'ed-host',
-      type: 'SET_LAYOUT_SPACING',
-      payload: {
-        id: targetId,
-        prop: prop,
-        value: value,
-        values: values,
-        phase: phase || 'commit',
-      },
-    });
-  }
-  function updateLayoutLinkButtons(root) {
-    if (!root) return;
-    var buttons = root.querySelectorAll('[data-layout-link]');
-    for (var i = 0; i < buttons.length; i++) {
-      var key = buttons[i].getAttribute('data-layout-link');
-      var active = !!layoutLinkState[key];
-      buttons[i].classList.toggle('mini-btn-active', active);
-      buttons[i].setAttribute('aria-pressed', active ? 'true' : 'false');
-    }
-  }
-
-  function clampLayoutValue(prop, value) {
-    var min = prop.indexOf('padding') === 0 ? 0 : -500;
-    return Math.round(Math.max(min, Math.min(1000, Number(value) || 0)));
-  }
-
-  function setLayoutDisplay(button, value) {
-    if (!button || button.querySelector('input')) return;
-    button.textContent = Math.round(Number(value) || 0);
-    button.title = '拖动快速调节；单击进行精细数字调节';
-  }
-
-  function updateLayoutPanel(root) {
-    if (!root || !latestLayoutInfo) return;
-    var edges = root.querySelectorAll('[data-layout-prop]');
-    for (var i = 0; i < edges.length; i++) {
-      var prop = edges[i].getAttribute('data-layout-prop');
-      setLayoutDisplay(edges[i], latestLayoutInfo[prop]);
-    }
-    var size = root.querySelector('[data-layout-size]');
-    if (size) {
-      size.textContent = Math.round(Number(latestLayoutInfo.width) || 0) + ' × ' +
-        Math.round(Number(latestLayoutInfo.height) || 0);
-    }
-    updateLayoutLinkButtons(root);
-  }
-
-  function updateLocalLayoutValue(prop, value) {
-    if (!latestLayoutInfo) return;
-    latestLayoutInfo[prop] = value;
-    var linked = linkedLayoutProp(prop);
-    if (linked) latestLayoutInfo[linked] = value;
-    updateLayoutPanel(document.getElementById('ed-layout-panel'));
-  }
-
-  function editLayoutValue(button) {
-    if (!button || Date.now() < Number(button.getAttribute('data-dragged-until') || 0) ||
-        button.querySelector('input')) return;
-    var prop = button.getAttribute('data-layout-prop');
-    var targetId = latestSelectedId;
-    var original = clampLayoutValue(prop, latestLayoutInfo && latestLayoutInfo[prop]);
-    var current = original;
-    var active = true;
-    var changed = false;
-    if (activeLayoutCancel) activeLayoutCancel();
-    button.textContent = '';
-    var input = document.createElement('input');
-    input.type = 'number';
-    input.min = prop.indexOf('padding') === 0 ? '0' : '-500';
-    input.max = '1000';
-    input.step = '1';
-    input.value = original;
-    button.appendChild(input);
-    sendLayoutSpacing(prop, original, 'start', targetId);
-
-    function finish(commit) {
-      if (!active) return;
-      active = false;
-      if (activeLayoutCancel === cancelEdit) activeLayoutCancel = null;
-      if (commit && changed) sendLayoutSpacing(prop, current, 'commit', targetId);
-      else sendLayoutSpacing(prop, original, 'cancel', targetId);
-      input.remove();
-      setLayoutDisplay(button, commit && changed ? current : original);
-    }
-    function cancelEdit() {
-      updateLocalLayoutValue(prop, original);
-      finish(false);
-    }
-    activeLayoutCancel = cancelEdit;
-
-    input.addEventListener('pointerdown', function (event) { event.stopPropagation(); });
-    input.addEventListener('click', function (event) { event.stopPropagation(); });
-    input.addEventListener('input', function () {
-      if (input.value === '' || !isFinite(Number(input.value))) return;
-      current = clampLayoutValue(prop, input.value);
-      changed = current !== original;
-      updateLocalLayoutValue(prop, current);
-      sendLayoutSpacing(prop, current, 'preview', targetId);
-    });
-    input.addEventListener('keydown', function (event) {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        finish(true);
-      } else if (event.key === 'Escape') {
-        event.preventDefault();
-        updateLocalLayoutValue(prop, original);
-        finish(false);
-      }
-    });
-    input.addEventListener('blur', function () { finish(true); });
-    input.focus();
-    input.select();
-  }
-
-  function beginLayoutDrag(event, button) {
-    if (event.button !== 0 || event.target.tagName === 'INPUT') return;
-    var prop = button.getAttribute('data-layout-prop');
-    var targetId = latestSelectedId;
-    var original = clampLayoutValue(prop, latestLayoutInfo && latestLayoutInfo[prop]);
-    var vertical = /Top|Bottom$/.test(prop);
-    var sign = /Top|Left$/.test(prop) ? -1 : 1;
-    var startPoint = vertical ? event.clientY : event.clientX;
-    var current = original;
-    var moved = false;
-    event.preventDefault();
-    if (activeLayoutCancel) activeLayoutCancel();
-    sendLayoutSpacing(prop, original, 'start', targetId);
-
-    function move(moveEvent) {
-      if (moveEvent.pointerId !== event.pointerId) return;
-      var point = vertical ? moveEvent.clientY : moveEvent.clientX;
-      var delta = Math.round((point - startPoint) * sign);
-      if (!moved && Math.abs(delta) < 2) return;
-      moved = true;
-      current = clampLayoutValue(prop, original + delta);
-      updateLocalLayoutValue(prop, current);
-      sendLayoutSpacing(prop, current, 'preview', targetId);
-    }
-
-    function finish(endEvent, canceled) {
-      if (endEvent && endEvent.pointerId !== event.pointerId) return;
-      document.removeEventListener('pointermove', move, true);
-      document.removeEventListener('pointerup', up, true);
-      document.removeEventListener('pointercancel', cancel, true);
-      if (activeLayoutCancel === cancelDrag) activeLayoutCancel = null;
-      if (moved && !canceled) {
-        button.setAttribute('data-dragged-until', String(Date.now() + 350));
-        sendLayoutSpacing(prop, current, 'commit', targetId);
-      } else {
-        updateLocalLayoutValue(prop, original);
-        sendLayoutSpacing(prop, original, 'cancel', targetId);
-      }
-    }
-    function cancelDrag() { finish(null, true); }
-
-    function up(upEvent) { finish(upEvent, false); }
-    function cancel(cancelEvent) { finish(cancelEvent, true); }
-    activeLayoutCancel = cancelDrag;
-    document.addEventListener('pointermove', move, true);
-    document.addEventListener('pointerup', up, true);
-    document.addEventListener('pointercancel', cancel, true);
-  }
-
-  function createLayoutEdge(prop, side) {
-    var button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'ed-box-edge ed-box-' + side;
-    button.setAttribute('data-layout-prop', prop);
-    button.addEventListener('pointerdown', function (event) { beginLayoutDrag(event, button); });
-    button.addEventListener('click', function () { editLayoutValue(button); });
-    return button;
-  }
-
-  function ensureLayoutPanel() {
-    var old = document.getElementById('ed-layout-panel');
-    var panel = document.querySelector('.property-panel');
-    if (!panel || !latestLayoutInfo || !latestSelectedId) {
-      if (old) old.remove();
-      return;
-    }
-    if (old) {
-      updateLayoutPanel(old);
-      return;
-    }
-    var section = document.createElement('div');
-    section.id = 'ed-layout-panel';
-    section.className = 'panel-section';
-    var head = document.createElement('div');
-    head.className = 'ed-layout-head';
-    var title = document.createElement('h4');
-    title.textContent = '尺寸与间距';
-    var fitBtn = document.createElement('button');
-    fitBtn.type = 'button';
-    fitBtn.className = 'mini-btn ed-layout-fit';
-    fitBtn.textContent = '适应容器';
-    fitBtn.title = '仅调整当前元素，不修改父容器和兄弟元素';
-    fitBtn.addEventListener('click', function () {
-      postToIframe({
-        source: 'ed-host',
-        type: 'FIT_TO_CONTAINER',
-        payload: { id: latestSelectedId },
-      });
-    });
-    head.appendChild(title);
-    head.appendChild(fitBtn);
-    section.appendChild(head);
-
-    var linkRow = document.createElement('div');
-    linkRow.className = 'ed-box-links';
-    [
-      ['marginVertical', 'M↕', '关联外距上下'],
-      ['marginHorizontal', 'M↔', '关联外距左右'],
-      ['paddingVertical', 'P↕', '关联内距上下'],
-      ['paddingHorizontal', 'P↔', '关联内距左右'],
-    ].forEach(function (config) {
-      var button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'mini-btn ed-box-link';
-      button.setAttribute('data-layout-link', config[0]);
-      button.textContent = config[1];
-      button.title = config[2] + '；开启后修改任一侧会同步另一侧';
-      button.addEventListener('click', function () {
-        layoutLinkState[config[0]] = !layoutLinkState[config[0]];
-        updateLayoutLinkButtons(section);
-      });
-      linkRow.appendChild(button);
-    });
-    section.appendChild(linkRow);
-
-    var model = document.createElement('div');
-    model.className = 'ed-box-model';
-    var marginCaption = document.createElement('span');
-    marginCaption.className = 'ed-box-caption';
-    marginCaption.textContent = 'margin';
-    model.appendChild(marginCaption);
-    model.appendChild(createLayoutEdge('marginTop', 'top'));
-    model.appendChild(createLayoutEdge('marginRight', 'right'));
-    model.appendChild(createLayoutEdge('marginBottom', 'bottom'));
-    model.appendChild(createLayoutEdge('marginLeft', 'left'));
-
-    var padding = document.createElement('div');
-    padding.className = 'ed-box-padding';
-    var paddingCaption = document.createElement('span');
-    paddingCaption.className = 'ed-box-caption';
-    paddingCaption.textContent = 'padding';
-    padding.appendChild(paddingCaption);
-    padding.appendChild(createLayoutEdge('paddingTop', 'top'));
-    padding.appendChild(createLayoutEdge('paddingRight', 'right'));
-    padding.appendChild(createLayoutEdge('paddingBottom', 'bottom'));
-    padding.appendChild(createLayoutEdge('paddingLeft', 'left'));
-    var content = document.createElement('div');
-    content.className = 'ed-box-content';
-    content.setAttribute('data-layout-size', '1');
-    padding.appendChild(content);
-    model.appendChild(padding);
-    section.appendChild(model);
-    updateLayoutPanel(section);
-    panel.appendChild(section);
-  }
-
-  window.addEventListener('message', function (e) {
-    var d = e.data;
-    if (!d || d.source !== 'ed-editor') return;
-    if (d.type === 'SELECT') {
-      var nextSelectedId = d.payload && d.payload.id ? d.payload.id : null;
-      if (activeLayoutCancel && latestSelectedId && nextSelectedId !== latestSelectedId) {
-        activeLayoutCancel();
-      }
-      latestTableInfo = d.payload && d.payload.tableInfo ? d.payload.tableInfo : null;
-      latestSelectedId = nextSelectedId;
-      latestLayoutInfo = d.payload && d.payload.layoutInfo ? d.payload.layoutInfo : null;
-      ensureTableWidthPanel();
-      ensureLayoutPanel();
-    } else if (d.type === 'CHANGED') {
-      postToIframe({ source: 'ed-host', type: 'GET_DRAFT_HTML' });
-    } else if (d.type === 'RESULT_DRAFT_HTML') {
-      try { localStorage.setItem('html-editor:draft', d.payload); } catch (error) {}
-    } else if (d.type === 'READY') {
-      latestTableInfo = null;
-      latestSelectedId = null;
-      latestLayoutInfo = null;
-      ensureTableWidthPanel();
-      ensureLayoutPanel();
-    } else if (d.type === 'DELETE_REJECTED') {
-      alert((d.payload && d.payload.reason) || '该元素不能删除');
-    }
-  });
-
   // 创建弹窗（模态）
   function openModal(title, bodyNode, opts) {
     opts = opts || {};
@@ -5187,7 +2681,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   document.addEventListener('keydown', function (e) {
     // 正在输入框/文本域/可编辑元素中不拦截
     var t = e.target;
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     // 有弹窗时不处理
     if (document.querySelector('.ed-extra-mask') || document.querySelector('.dialog-mask')) return;
     var key = e.key;
@@ -5198,8 +2692,6 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }
     // Ctrl/Cmd + '+'/'-'/'0' 缩放画布（preventDefault 避免触发浏览器自身缩放）
     if (e.ctrlKey || e.metaKey) {
-      if (key.toLowerCase() === 'c') { e.preventDefault(); postToIframe({ source: 'ed-host', type: 'COPY' }); return; }
-      if (key.toLowerCase() === 'v') { e.preventDefault(); postToIframe({ source: 'ed-host', type: 'PASTE' }); return; }
       if (key === '=' || key === '+') { e.preventDefault(); postToIframe({ source: 'ed-host', type: 'ZOOM_IN' }); return; }
       if (key === '-') { e.preventDefault(); postToIframe({ source: 'ed-host', type: 'ZOOM_OUT' }); return; }
       if (key === '0') { e.preventDefault(); postToIframe({ source: 'ed-host', type: 'ZOOM_RESET' }); return; }
@@ -5732,85 +3224,6 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     right.insertBefore(out, right.firstChild);
     renderZoom();
   }
-  // ============ 顶部工具栏用途归组 ============
-  function toolbarButtonText(node) {
-    return node && node.textContent ? node.textContent.replace(/\s+/g, ' ').trim() : '';
-  }
-  function ensureToolbarGroups() {
-    var toolbar = document.querySelector('.toolbar');
-    var left = toolbar && toolbar.querySelector('.toolbar-left');
-    var center = toolbar && toolbar.querySelector('.toolbar-center');
-    var right = toolbar && toolbar.querySelector('.toolbar-right');
-    if (!toolbar || !left || !center || !right) return;
-    left.classList.add('ed-toolbar-identity');
-    right.classList.add('ed-toolbar-groups');
-
-    var definitions = [
-      { key: 'document', label: '文档' },
-      { key: 'history', label: '历史' },
-      { key: 'view', label: '视图' },
-      { key: 'content', label: '内容' },
-      { key: 'danger', label: '危险操作' },
-    ];
-    var groups = {};
-    definitions.forEach(function (definition) {
-      var group = Array.prototype.find.call(right.children, function (child) {
-        return child.getAttribute && child.getAttribute('data-ed-toolbar-group') === definition.key;
-      });
-      if (!group) {
-        group = document.createElement('div');
-        group.className = 'ed-toolbar-group';
-        group.setAttribute('data-ed-toolbar-group', definition.key);
-        group.setAttribute('data-group', definition.key);
-        right.appendChild(group);
-      }
-      group.setAttribute('data-label', definition.label);
-      groups[definition.key] = group;
-    });
-    var groupedChildren = Array.prototype.filter.call(right.children, function (child) {
-      return child.hasAttribute && child.hasAttribute('data-ed-toolbar-group');
-    });
-    var currentOrder = groupedChildren.map(function (group) {
-      return group.getAttribute('data-ed-toolbar-group');
-    }).join('|');
-    var desiredOrder = definitions.map(function (definition) { return definition.key; }).join('|');
-    if (currentOrder !== desiredOrder) {
-      definitions.forEach(function (definition) { right.appendChild(groups[definition.key]); });
-    }
-
-    function moveById(groupKey, ids) {
-      ids.forEach(function (id) {
-        var node = document.getElementById(id);
-        if (node) groups[groupKey].appendChild(node);
-      });
-    }
-    function moveButtons(groupKey, predicate) {
-      Array.prototype.slice.call(toolbar.querySelectorAll('button')).forEach(function (button) {
-        if (button.closest('[data-ed-toolbar-group]') && !predicate(button)) return;
-        if (predicate(button)) groups[groupKey].appendChild(button);
-      });
-    }
-
-    moveButtons('document', function (button) {
-      var text = toolbarButtonText(button);
-      return text === '上传 HTML' || text === '源码' || text === '导出 HTML';
-    });
-    var uploadInput = left.querySelector('input[type="file"][accept*="html" i]');
-    if (uploadInput) groups.document.appendChild(uploadInput);
-    moveById('document', ['ed-export-png', 'ed-slice-btn']);
-
-    moveButtons('history', function (button) {
-      var title = button.getAttribute('title') || '';
-      return title.indexOf('撤销') === 0 || title.indexOf('重做') === 0;
-    });
-    moveById('history', ['ed-history-btn']);
-
-    moveById('view', ['ed-zoom-out', 'ed-zoom-label', 'ed-zoom-in', 'ed-grid-btn', 'ed-layer-btn']);
-    moveById('content', ['ed-library-btn', 'ed-batch-btn', 'ed-overlay-btn', 'ed-blur-btn']);
-    moveButtons('danger', function (button) {
-      return button.getAttribute('title') === '清空画布' || toolbarButtonText(button) === '清空';
-    });
-  }
   // 缩放值同步：iframe 内快捷键/外部按钮都会回发 ZOOM；加载新文档（READY）重置为 100%
   window.addEventListener('message', function (e) {
     var d = e.data;
@@ -5833,9 +3246,6 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
   // ============ 初始化 ============
   function start() {
-    ensureTextAlignTitle();
-    ensureTableWidthPanel();
-    ensureLayoutPanel();
     ensureGridBtn();
     ensureHistoryBtn();
     ensureLibraryBtn();
@@ -5846,26 +3256,16 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     ensureContainerAlignPanel();
     ensureZoomCtrl();
     ensureOverlayBtn();
-    ensureToolbarGroups();
   }
   // 持续保证按钮存在（工具栏是 React 动态渲染的）
-  var loopScheduled = false;
-  var enhancementObserver = null;
-  function observeEnhancements() {
-    enhancementObserver.observe(document.body, { childList: true, subtree: true });
-  }
+  var looping = false;
   function loop() {
-    if (loopScheduled) return;
-    loopScheduled = true;
-    requestAnimationFrame(function () {
-      loopScheduled = false;
-      enhancementObserver.disconnect();
-      try { if (ensureToolbarRight()) start(); } finally { observeEnhancements(); }
-    });
+    if (looping) return;
+    looping = true;
+    try { if (ensureToolbarRight()) start(); } finally { looping = false; }
   }
-  enhancementObserver = new MutationObserver(loop);
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { start(); observeEnhancements(); });
-  else { start(); observeEnhancements(); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { start(); new MutationObserver(loop).observe(document.body, { childList: true, subtree: true }); });
+  else { start(); new MutationObserver(loop).observe(document.body, { childList: true, subtree: true }); }
 })();
 </script>
 
