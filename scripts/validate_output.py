@@ -98,6 +98,14 @@ def normalize_for_match(value: str) -> str:
     return re.sub(r"[：:\s]", "", value)
 
 
+# Editorial boilerplate the generator strips by design (mirrors
+# batch_generate.strip_advice_boilerplate): the 【官方建议】 title mark, the
+# '官方建议'诠释：… block and the 适用类目范围：… block.
+ADVICE_TITLE_MARK = "【官方建议】"
+ADVICE_BLOCK_RE = re.compile(r"['\"“”‘’]?官方建议['\"“”‘’]?诠释\s*[：:]")
+SCOPE_BLOCK_RE = re.compile(r"适用类目范围\s*[：:]")
+
+
 def count_class(html_text: str, class_name: str) -> int:
     pattern = rf'<[^>]+\bclass="[^"]*\b{re.escape(class_name)}\b[^"]*"'
     return len(re.findall(pattern, html_text, flags=re.I))
@@ -313,6 +321,17 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
                 # Present after canonical rewrite (title prefix / chapter numeral
                 # / brace / colon normalization); not a real omission.
                 continue
+            # Editorial boilerplate removed by design (see SKILL.md): the
+            # 【官方建议】 title mark (plus any 的副本 copy suffix), the whole
+            # '官方建议'诠释：… block and the 适用类目范围：… block.
+            if ADVICE_BLOCK_RE.search(text) or SCOPE_BLOCK_RE.search(text):
+                continue
+            if ADVICE_TITLE_MARK in text:
+                core = text.replace(ADVICE_TITLE_MARK, "")
+                core = re.sub(r"\s*的副本\s*$", "", core)
+                core_n = normalize_for_match(core)
+                if core_n and core_n in normalized_visible:
+                    continue
             # A chapter title's 「（…X%）」metric is split into the h2 title plus a
             # green bar (separated by the INTRODUCTION label), so the full string is
             # never contiguous. Pass when the title core and the metric each appear.

@@ -49,12 +49,12 @@ Never pull later material forward to improve visual balance. Split or combine wr
 - Pure labels ending with `：` → `.label-line`.
 - Nested list items → `.source-list`, grey squares, one-level indentation.
 - Independent prose → separate `.plain-block`.
-- Module-local `（1）（2）（3）（4）` subtitles → child white modules inside the same card, never new chapters.
+- Module-local `（1）（2）（3）（4）` subtitles → child white modules inside the same card, never new chapters. Exception: when those subtitles sit under a numbered parent label (such as `2.各区域详细规范说明：`) and each carries its own sub-list (`a.`/`b.`/`c.`), keep the parent label and all subtitle groups in ONE white container and render each subtitle as a grey-square `.caption-line`; only leaf-level `（1）`–`（4）` subtitles keep the pink marker.
 - Consecutive `子标题 → 表格` pairs under one module-local subtitle → one shared white subtitle container; child titles use grey squares and one nested indent.
 - Numbered first-level modules → accept the source PDF's exact order and count; cross-check their short names against the overview's `【模块名】` labels before promoting them.
 - Explanatory children under a bracket parent such as `【主图】` → `.sublevel` items with grey squares, no pink marker, and the same group/text indentation as `.source-list` children.
 - Keep a bracket parent and its `.sublevel` children as consecutive direct `<li>` siblings in one `.red-list`. Never create a nested `.red-list`; it compounds indentation and removes the parent-to-first-child spacing.
-- Consecutive numbered siblings (`1、` / `2、` / `3、`) → one shared parent module, identical weight and grey-square hierarchy even when only one item contains a colon.
+- Consecutive numbered siblings (`1、` / `2、` / `3、`) → one shared parent module, identical weight and grey-square hierarchy even when only one item contains a colon. However, a numbered item whose body is itself a top-level `前缀：内容` pair (e.g. `1. 标题结构：…`) belongs to `.red-list` like any other top-level colon item — the leading number stays inside the pink prefix and does not demote the item to `.source-list`.
 
 Wrap a label, its grey caption, and its images in the same `.text-block`. Indent the caption and images as children of that label.
 

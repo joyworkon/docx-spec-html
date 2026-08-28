@@ -15,6 +15,7 @@ from typing import Any
 
 from docx import Document
 from docx.document import Document as DocumentObject
+from docx.image.image import Image as DocxImage
 from docx.oxml.ns import qn
 from docx.oxml.table import CT_Tbl
 from docx.oxml.text.paragraph import CT_P
@@ -30,7 +31,7 @@ DEFAULT_FONT = SKILL_ROOT / "assets" / "fonts" / "JINGDONGLangZhengTi1-Bold.woff
 DEFAULT_H2C = SKILL_ROOT / "assets" / "vendor" / "html2canvas.min.js"
 DEFAULT_EDITOR = SKILL_ROOT / "assets" / "vendor" / "html-editor.html"
 GENERATOR_CSS_MARKER = "/* ===== Generic DOCX generator additions ===== */"
-SKILL_RELEASE = "2026.08.25-r16"
+SKILL_RELEASE = "2026.08.28-r18"
 
 
 # Editorial boilerplate removed from every source: the 【官方建议】 title marker,
@@ -412,6 +413,7 @@ def render_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes], ext
     grid = [list(row.cells) for row in table.rows]
     rows_html: list[str] = []
     emitted_cells: set[int] = set()
+    media_images: list[tuple[str, int]] = []  # (image target, cell colspan)
     for row_idx, cells in enumerate(grid):
         cells_html: list[str] = []
         tag = "th" if row_idx == 0 else "td"
@@ -443,6 +445,7 @@ def render_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes], ext
                 for target in paragraph_images(doc, paragraph):
                     if target in blobs:
                         image_html.append(f'<div class="image-holder">{image_tag(target, blobs, texts[0] if texts else "表格图片")}</div>')
+                        media_images.append((target, colspan_count))
             text_html = "<br>".join(esc(text) for text in texts)
             colspan = f' colspan="{colspan_count}"' if colspan_count > 1 else ""
             rowspan = f' rowspan="{rowspan_count}"' if rowspan_count > 1 else ""
@@ -462,13 +465,75 @@ def render_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes], ext
             cell_index += colspan_count
         rows_html.append("<tr>" + "".join(cells_html) + "</tr>")
     classes = "doc-table" + (f" {extra_class}" if extra_class else "")
+    table_attrs = ""
+    if "tag-example-table" in extra_class and media_images:
+        # Fixed equal tracks + a shared image height: the height must come from
+        # the real pixel aspects, or wide images spill out of their cell cards.
+        height, fit_width = showcase_media_height(media_images, blobs, len(grid[0]) if grid else 2)
+        if fit_width:
+            classes += " is-fit-width"
+        elif height:
+            table_attrs = f' style="--tag-example-media-height: {height}px"'
     colgroup = ""
     if "spec-table" in extra_class and grid and len(grid[0]) == 4:
         colgroup = (
             '<colgroup><col class="spec-c1"><col class="spec-c2">'
             '<col class="spec-c3"><col class="spec-c4"></colgroup>'
         )
-    return f'<div class="doc-table-wrap"><table class="{classes}">{colgroup}' + "".join(rows_html) + "</table></div>"
+    return f'<div class="doc-table-wrap"><table class="{classes}"{table_attrs}>{colgroup}' + "".join(rows_html) + "</table></div>"
+
+
+# Showcase geometry: the standard container chain poster(1280) -> card(1188,
+# 42px side padding) -> spec-text(28px) -> text-block(39px) -> doc-table-wrap
+# (18px) leaves a 934px inner width for the table; border-spacing adds an 8px
+# gap around and between cells, and each media cell insets its image by 12px on
+# both sides. Tables placed directly under a grey panel get a slightly wider
+# inner width, so deriving the shared height from 934px stays conservative and
+# can never overflow.
+SHOWCASE_INNER_WIDTH = 934
+SHOWCASE_MAX_HEIGHT = 480
+SHOWCASE_MIN_HEIGHT = 200
+SHOWCASE_GAP = 8
+SHOWCASE_CELL_PADDING = 24  # 12px on each side
+
+
+def showcase_media_height(
+    media_images: list[tuple[str, int]], blobs: dict[str, bytes], columns: int
+) -> tuple[int | None, bool]:
+    """Shared media height for one tag-example showcase table.
+
+    ``.doc-table`` uses ``table-layout: fixed``, so every column gets an equal
+    track; an image rendered at the shared height must fit its track or it
+    spills out of the cell card. Compute the largest height (capped at 480px)
+    that keeps the widest image inside its column, using the real pixel aspect
+    ratios of the embedded blobs. When the aspects diverge beyond ~1.5x, one
+    shared height would shrink narrow images too much — switch the table to the
+    ``.is-fit-width`` variant (equal widths, proportional heights) instead.
+    Returns ``(height_px, fit_width)``; ``(None, False)`` means "no images".
+    """
+    aspects: list[tuple[float, int]] = []
+    for target, span in media_images:
+        blob = blobs.get(target)
+        if not blob:
+            continue
+        try:
+            image = DocxImage.from_blob(blob)
+        except Exception:
+            continue
+        if image.px_width and image.px_height:
+            aspects.append((image.px_width / image.px_height, max(1, span)))
+    if not aspects:
+        return None, False
+    ratios = [aspect for aspect, _ in aspects]
+    if max(ratios) / min(ratios) > 1.5:
+        return None, True
+    track = (SHOWCASE_INNER_WIDTH - SHOWCASE_GAP * (columns + 1)) / max(1, columns)
+    limits = []
+    for aspect, span in aspects:
+        available = track * span + SHOWCASE_GAP * (span - 1) - SHOWCASE_CELL_PADDING
+        limits.append(available / aspect)
+    height = int(min(SHOWCASE_MAX_HEIGHT, min(limits)))
+    return max(SHOWCASE_MIN_HEIGHT, height), False
 
 
 def document_uses_heading_styles(blocks: list[ParagraphBlock | TableBlock]) -> bool:
@@ -1017,24 +1082,48 @@ def before_after(table: Table, doc: DocumentObject, blobs: dict[str, bytes]) -> 
     rows = list(table.rows)
     if not rows:
         return ""
-    header = [clean_text(cell.text) for cell in rows[0].cells]
+    # python-docx exposes every grid slot of a merged (colspan) header as its own
+    # Cell wrapper around the same w:tc. Dedupe by the underlying cell so a shared
+    # 优化前/优化后 heading stays ONE column instead of repeating the header.
+    grid_row = list(rows[0].cells)
+    header_spans: list[tuple[object, int, int]] = []  # (cell, start slot, span)
+    slot = 0
+    while slot < len(grid_row):
+        span = 1
+        while slot + span < len(grid_row) and grid_row[slot + span]._tc is grid_row[slot]._tc:
+            span += 1
+        header_spans.append((grid_row[slot], slot, span))
+        slot += span
     cols: list[str] = []
-    for ci in range(len(rows[0].cells)):
-        head = header[ci] if ci < len(header) else ""
+    for ci, (head_cell, start, span) in enumerate(header_spans):
+        head = clean_text(head_cell.text)
         is_before = "前" in head or (ci == 0 and "后" not in head)
         head_class = "ba-before" if is_before else "ba-after"
-        body = ""
+        images: list[str] = []
+        parts: list[str] = []
         for row in rows[1:]:
-            if ci >= len(row.cells):
-                continue
-            cell = row.cells[ci]
-            for paragraph in cell.paragraphs:
-                for target in paragraph_images(doc, paragraph):
-                    if target in blobs:
-                        body += f'<div class="image-holder">{image_tag(target, blobs, head)}</div>'
-                txt = clean_text(paragraph.text)
-                if txt:
-                    body += f'<p class="ba-text">{esc(txt)}</p>'
+            slots = list(row.cells)
+            seen_cells: set[int] = set()
+            for cell in slots[start : start + span]:
+                if id(cell._tc) in seen_cells:
+                    continue
+                seen_cells.add(id(cell._tc))
+                for paragraph in cell.paragraphs:
+                    paragraph_html: list[str] = []
+                    for target in paragraph_images(doc, paragraph):
+                        if target in blobs:
+                            paragraph_html.append(f'<div class="image-holder">{image_tag(target, blobs, head)}</div>')
+                    txt = clean_text(paragraph.text)
+                    if txt:
+                        paragraph_html.append(f'<p class="ba-text">{esc(txt)}</p>')
+                    images.extend(part for part in paragraph_html if part.startswith('<div class="image-holder">'))
+                    parts.extend(paragraph_html)
+        # Several images (and nothing else) under one shared header stay side by
+        # side in a ba-media-row; mixed image/text cells keep source order.
+        if len(images) > 1 and len(parts) == len(images):
+            body = f'<div class="ba-media-row">{"".join(parts)}</div>'
+        else:
+            body = "".join(parts)
         cols.append(f'<div class="ba-col"><div class="ba-head {head_class}">{esc(head)}</div>{body}</div>')
     return f'<div class="ba-compare">{"".join(cols)}</div>'
 
@@ -1676,6 +1765,54 @@ def editor_runtime() -> str:
     )
 
 
+VIDEO_FILE_RE = re.compile(r"\.(?:mp4|mov|avi|wmv|flv|mkv|webm)\b", re.I)
+
+
+def document_hyperlinks(doc: DocumentObject) -> list[tuple[str, str]]:
+    """External hyperlinks in document order as (anchor text, url) pairs."""
+    found: list[tuple[str, str]] = []
+
+    def scan(paragraphs: list) -> None:
+        for paragraph in paragraphs:
+            for link in getattr(paragraph, "hyperlinks", []):
+                text = clean_text("".join(run.text for run in link.runs))
+                if text and link.url:
+                    found.append((text, link.url))
+
+    scan(doc.paragraphs)
+    for table in doc.tables:
+        seen_cells: set[int] = set()
+        for row in table.rows:
+            for cell in row.cells:
+                if id(cell._tc) in seen_cells:
+                    continue
+                seen_cells.add(id(cell._tc))
+                scan(cell.paragraphs)
+    return found
+
+
+def inject_hyperlink_buttons(html_text: str, doc: DocumentObject) -> str:
+    """Follow every kept DOCX hyperlink anchor with one red .link-btn「点击查看」.
+
+    The anchor text stays verbatim in the body copy; only the button carries the
+    URL, so raw links never appear as text. Video file links are skipped — they
+    are already rendered as the 点击播放 card. Justified text injects U+200B
+    between characters, so the anchor is matched with optional zero-width gaps.
+    """
+    done: set[str] = set()
+    for anchor, url in document_hyperlinks(doc):
+        if anchor in done or VIDEO_FILE_RE.search(anchor):
+            continue
+        pattern = "\u200b?".join(re.escape(char) for char in anchor)
+        match = re.search(pattern, html_text)
+        if not match:
+            continue
+        button = f'<a class="link-btn" href="{esc(url)}" target="_blank" rel="noopener">点击查看</a>'
+        html_text = html_text[: match.end()] + button + html_text[match.end() :]
+        done.add(anchor)
+    return html_text
+
+
 def render_html(docx_path: Path, style_path: Path, font_path: Path | None, updated_label: str, editable: bool) -> str:
     doc = Document(docx_path)
     blobs = image_target_to_blob(doc)
@@ -1698,7 +1835,7 @@ def render_html(docx_path: Path, style_path: Path, font_path: Path | None, updat
             cards.append(render_card(section_title, body, chapter, section_metric))
             chapter += 1
     editable_runtime = EDITABLE_RUNTIME if editable else ""
-    return f"""<!doctype html>
+    page = f"""<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
@@ -1724,6 +1861,7 @@ def render_html(docx_path: Path, style_path: Path, font_path: Path | None, updat
 </body>
 </html>
 """
+    return inject_hyperlink_buttons(page, doc)
 
 
 def docx_inputs(input_path: Path) -> list[Path]:

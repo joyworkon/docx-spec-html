@@ -199,6 +199,10 @@ def generic_dom_checks(root: Node) -> dict[str, bool]:
         for node in root.descendants()
     )
 
+    # .ba-compare must sit inside a .text-block white container: the .ba-before
+    # header's light-grey fill is invisible against the grey panel otherwise.
+    ba_compares = [node for node in root.descendants() if node.has_class("ba-compare")]
+
     return {
         "no_nested_red_list": not any(node.ancestor(tag="ul", class_name="red-list") for node in red_lists),
         "plain_prose_uses_plain_block": all(block.has_class("plain-block") for block in text_only_blocks),
@@ -206,6 +210,9 @@ def generic_dom_checks(root: Node) -> dict[str, bool]:
         or all(_tag_example_contract(table) for table in tag_tables),
         "table_images_use_semantic_media_cells": all(media_cell_matches_table(image, table) for image, table in table_images),
         "no_protected_inline_style_overrides": not protected_inline_override,
+        "ba_compare_wrapped_in_text_block": all(
+            node.ancestor(class_name="text-block") is not None for node in ba_compares
+        ),
     }
 
 
@@ -305,6 +312,7 @@ def _self_test() -> None:
     <section><h2>{{ 品质标签 }}</h2><div class="doc-table-wrap"><table class="doc-table tag-example-table">
       <tr><th>品质标签示例</th></tr><tr><td class="table-media-cell"><div class="image-holder"><img></div></td></tr>
     </table></div></section>
+    <section><h2>{{ 标题 }}</h2><div class="text-block"><div class="ba-compare"><div class="ba-col"><div class="ba-head ba-before">优化前</div></div><div class="ba-col"><div class="ba-head ba-after">优化后</div></div></div></div></section>
     """
     bad = f"""
     <section class="intro-card"><ul class="red-list"><li><b>【主图】</b><ul class="red-list">
@@ -313,6 +321,7 @@ def _self_test() -> None:
     <section><h2>{{ 主推标签 }}</h2><div class="text-block"><p>商家可选择对各SPU下的主推荐SKU进行打标，内容</p></div></section>
     <section><h2>{{ 品质标签 }}</h2><table class="tag-example-table"><tr><th>品质标签示例</th></tr>
       <tr><td class="attr-img"><div class="image-holder"><img></div></td></tr></table></section>
+    <section><h2>{{ 标题 }}</h2><div class="ba-compare"><div class="ba-col"><div class="ba-head ba-before">优化前</div></div><div class="ba-col"><div class="ba-head ba-after">优化后</div></div></div></section>
     """
     good_root = parse_html(good)
     good_checks = {**generic_dom_checks(good_root), **body_care_dom_checks(good_root)}
@@ -325,6 +334,7 @@ def _self_test() -> None:
         "plain_prose_uses_plain_block",
         "tag_example_table_component_contract",
         "table_images_use_semantic_media_cells",
+        "ba_compare_wrapped_in_text_block",
         "overview_main_image_children_are_flat",
         "main_tag_body_uses_plain_prose_component",
         "quality_tag_example_has_real_table_header",

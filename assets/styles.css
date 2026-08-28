@@ -1112,6 +1112,24 @@ body { background: #737373; }
   color: #555;
 }
 .poster.auto-doc .video-demo .vd-icon { width: 52px; height: 52px; display: block; }
+
+/* Outbound document links (操作手册 / 平台规则 …): the DOCX hyperlink text stays
+   verbatim and is followed by one small red .link-btn 「点击查看」 pill that
+   carries the URL. Never expose the raw link as body text. */
+.poster.auto-doc .link-btn {
+  display: inline-block;
+  margin-left: 14px;
+  padding: 4px 22px;
+  border-radius: 999px;
+  background: var(--brand-red);
+  color: #fff;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.5;
+  text-decoration: none;
+  vertical-align: middle;
+}
+.poster.auto-doc .link-btn:hover { opacity: 0.88; }
 .poster.auto-doc .video-case-grid {
   display: grid;
   grid-template-columns: 2fr 1fr;
@@ -1306,8 +1324,10 @@ body { background: #737373; }
 .poster.auto-doc .attr-table .attr-img .image-holder { margin: 0; min-height: 0; }
 .poster.auto-doc .attr-table .attr-img .doc-image { display: block; width: 100%; height: auto; border-radius: 8px; }
 
-/* Image showcase columns share one visible height. Set only the image height and
-   leave width auto so source proportions survive both browser and html2canvas. */
+/* Image showcase columns share one visible height. The generator computes a
+   per-table height that keeps the widest image inside its fixed column track
+   (see tag_example_media_height in batch_generate.py); max-width: 100% stays as
+   the hard safety net so a hand-edited page can never overflow the cell card. */
 .poster.auto-doc .tag-example-table td.table-media-cell .image-holder {
   height: var(--tag-example-media-height);
   min-height: var(--tag-example-media-height);
@@ -1315,8 +1335,26 @@ body { background: #737373; }
 .poster.auto-doc .tag-example-table .doc-image {
   width: auto;
   height: 100%;
-  max-width: none;
+  max-width: 100%;
   max-height: none;
+}
+
+/* .is-fit-width variant: for showcase rows whose image aspect ratios diverge
+   strongly (widest/narrowest > ~1.5), the shared fixed height would blow wide
+   images past the content width. Switch to equal-width columns with fully
+   proportional images instead (heights may differ, mirroring the source). */
+.poster.auto-doc .tag-example-table.is-fit-width {
+  table-layout: fixed;
+  width: 100%;
+}
+.poster.auto-doc .tag-example-table.is-fit-width td.table-media-cell .image-holder {
+  height: auto;
+  min-height: 0;
+}
+.poster.auto-doc .tag-example-table.is-fit-width td.table-media-cell .doc-image {
+  width: 100%;
+  height: auto;
+  max-width: 100%;
 }
 
 /* layout placeholder for 首图模块化 schematic */
@@ -1348,13 +1386,35 @@ body { background: #737373; }
 }
 .poster.auto-doc .ba-before { background: #f1f1f1; color: #555; }
 .poster.auto-doc .ba-after { background: var(--brand-red); color: #fff; }
+/* Every media card in a compare column stretches to the column height, so the
+   优化前/优化后 grey backgrounds stay level even when the two sides' images have
+   different aspect ratios. The image itself keeps its source proportion and is
+   centred inside the stretched card (never stretched). */
 .poster.auto-doc .ba-col .image-holder {
+  flex: 1 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   min-height: 0;
   margin: 0;
   padding: var(--table-media-padding);
   border-radius: var(--table-cell-radius);
   background: var(--table-body-bg);
+  box-sizing: border-box;
+}
+/* A shared 优化前/优化后 header may span several image columns in the source
+   table (colspan). Those images stay side by side in one .ba-media-row inside
+   the single column; the row stretches like any other media card. */
+.poster.auto-doc .ba-col .ba-media-row {
+  flex: 1 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 10px;
+  align-items: stretch;
+}
+.poster.auto-doc .ba-col .ba-media-row .image-holder {
+  height: 100%;
 }
 .poster.auto-doc .ba-col .doc-image {
   display: block;
