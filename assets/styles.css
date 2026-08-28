@@ -1416,6 +1416,45 @@ body { background: #737373; }
 .poster.auto-doc .ba-col .ba-media-row .image-holder {
   height: 100%;
 }
+/* Multi-row pure-image compares use the .is-row-grid variant: heads in the
+   first grid row, then each source row's images share one grid row, so the
+   优化前/优化后 pair of EVERY row renders at the same height (the grid row
+   stretches both cards to the taller image; the image keeps its proportion and
+   stays centred). */
+.poster.auto-doc .ba-compare.is-row-grid > .image-holder,
+.poster.auto-doc .ba-compare.is-row-grid > .ba-media-row {
+  min-width: 0;
+}
+.poster.auto-doc .ba-compare.is-row-grid > .image-holder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--table-media-padding);
+  border-radius: var(--table-cell-radius);
+  background: var(--table-body-bg);
+  box-sizing: border-box;
+}
+.poster.auto-doc .ba-compare.is-row-grid > .image-holder .doc-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+.poster.auto-doc .ba-compare.is-row-grid > .ba-media-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 10px;
+}
+.poster.auto-doc .ba-compare.is-row-grid > .ba-media-row .image-holder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--table-media-padding);
+  border-radius: var(--table-cell-radius);
+  background: var(--table-body-bg);
+  box-sizing: border-box;
+  height: 100%;
+}
 .poster.auto-doc .ba-col .doc-image {
   display: block;
   width: 100%;

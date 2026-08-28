@@ -31,7 +31,7 @@ DEFAULT_FONT = SKILL_ROOT / "assets" / "fonts" / "JINGDONGLangZhengTi1-Bold.woff
 DEFAULT_H2C = SKILL_ROOT / "assets" / "vendor" / "html2canvas.min.js"
 DEFAULT_EDITOR = SKILL_ROOT / "assets" / "vendor" / "html-editor.html"
 GENERATOR_CSS_MARKER = "/* ===== Generic DOCX generator additions ===== */"
-SKILL_RELEASE = "2026.08.28-r18"
+SKILL_RELEASE = "2026.08.28-r19"
 
 
 # Editorial boilerplate removed from every source: the 【官方建议】 title marker,
@@ -1094,30 +1094,89 @@ def before_after(table: Table, doc: DocumentObject, blobs: dict[str, bytes]) -> 
             span += 1
         header_spans.append((grid_row[slot], slot, span))
         slot += span
-    cols: list[str] = []
-    for ci, (head_cell, start, span) in enumerate(header_spans):
-        head = clean_text(head_cell.text)
-        is_before = "前" in head or (ci == 0 and "后" not in head)
-        head_class = "ba-before" if is_before else "ba-after"
-        images: list[str] = []
+
+    def cell_parts(cell: object, head: str) -> list[str]:
         parts: list[str] = []
-        for row in rows[1:]:
-            slots = list(row.cells)
+        for paragraph in cell.paragraphs:  # type: ignore[attr-defined]
+            for target in paragraph_images(doc, paragraph):
+                if target in blobs:
+                    parts.append(f'<div class="image-holder">{image_tag(target, blobs, head)}</div>')
+            txt = clean_text(paragraph.text)  # type: ignore[attr-defined]
+            if txt:
+                parts.append(f'<p class="ba-text">{esc(txt)}</p>')
+        return parts
+
+    # Collect body content row by row, column by column (deduping grid slots that
+    # share one w:tc). If ANY cell repeats across rows (a rowspan), flag it: the
+    # row-grid layout cannot represent that geometry and falls back to columns.
+    body_rows: list[list[list[str]]] = []
+    rowspan_seen = False
+    for row in rows[1:]:
+        slots = list(row.cells)
+        row_cells: list[list[str]] = []
+        for head_cell, start, span in header_spans:
+            head = clean_text(head_cell.text)
             seen_cells: set[int] = set()
+            parts: list[str] = []
             for cell in slots[start : start + span]:
                 if id(cell._tc) in seen_cells:
                     continue
                 seen_cells.add(id(cell._tc))
-                for paragraph in cell.paragraphs:
-                    paragraph_html: list[str] = []
-                    for target in paragraph_images(doc, paragraph):
-                        if target in blobs:
-                            paragraph_html.append(f'<div class="image-holder">{image_tag(target, blobs, head)}</div>')
-                    txt = clean_text(paragraph.text)
-                    if txt:
-                        paragraph_html.append(f'<p class="ba-text">{esc(txt)}</p>')
-                    images.extend(part for part in paragraph_html if part.startswith('<div class="image-holder">'))
-                    parts.extend(paragraph_html)
+                parts.extend(cell_parts(cell, head))
+            row_cells.append(parts)
+        body_rows.append(row_cells)
+    emitted_once: set[int] = set()
+    for row in rows[1:]:
+        slots = list(row.cells)
+        for _head_cell, start, span in header_spans:
+            for cell in slots[start : start + span]:
+                if id(cell._tc) in emitted_once:
+                    rowspan_seen = True
+                emitted_once.add(id(cell._tc))
+
+    # Multi-row pure-image pairs align row by row: one flat grid, heads in the
+    # first row, then each pair of images shares one grid row, so both sides
+    # always render at the same height. Text-bearing or rowspan bodies keep the
+    # classic two-column stacking.
+    flat_images = (
+        len(body_rows) > 1
+        and not rowspan_seen
+        and all(
+            part.startswith('<div class="image-holder">')
+            for row_cells in body_rows
+            for parts in row_cells
+            for part in parts
+        )
+    )
+    if flat_images:
+        flat: list[str] = []
+        for ci, (head_cell, _start, _span) in enumerate(header_spans):
+            head = clean_text(head_cell.text)
+            is_before = "前" in head or (ci == 0 and "后" not in head)
+            flat.append(f'<div class="ba-head {"ba-before" if is_before else "ba-after"}">{esc(head)}</div>')
+        for row_cells in body_rows:
+            for parts in row_cells:
+                if not parts:
+                    # An empty source cell still occupies its grid slot so the
+                    # row stays aligned with the other column.
+                    flat.append('<div class="image-holder"></div>')
+                    continue
+                flat.append(
+                    "".join(parts)
+                    if len(parts) == 1
+                    else f'<div class="ba-media-row">{"".join(parts)}</div>'
+                )
+        return f'<div class="ba-compare is-row-grid">{"".join(flat)}</div>'
+
+    cols: list[str] = []
+    for ci, (head_cell, _start, _span) in enumerate(header_spans):
+        head = clean_text(head_cell.text)
+        is_before = "前" in head or (ci == 0 and "后" not in head)
+        head_class = "ba-before" if is_before else "ba-after"
+        parts: list[str] = []
+        for row_cells in body_rows:
+            parts.extend(row_cells[ci])
+        images = [part for part in parts if part.startswith('<div class="image-holder">')]
         # Several images (and nothing else) under one shared header stay side by
         # side in a ba-media-row; mixed image/text cells keep source order.
         if len(images) > 1 and len(parts) == len(images):
