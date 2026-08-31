@@ -205,6 +205,24 @@ Error generating stack: `+o.message+`
 .ed-flow-guide[data-axis="x"] { width: 1px !important; }
 .ed-flow-guide[data-axis="y"] { height: 1px !important; }
 
+.ed-user-guide {
+  position: fixed !important;
+  z-index: 2147483643 !important;
+  background: #00b8d9 !important;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .5) !important;
+  pointer-events: none !important;
+}
+.ed-user-guide[data-axis="x"] {
+  top: 0 !important;
+  bottom: 0 !important;
+  width: 1px !important;
+}
+.ed-user-guide[data-axis="y"] {
+  left: 0 !important;
+  right: 0 !important;
+  height: 1px !important;
+}
+
 /* 右键菜单由父窗口 React 管理，iframe 内不再注入遮罩层 */
 
 /* 空白占位提示 */
@@ -253,6 +271,7 @@ Error generating stack: `+o.message+`
   var flowDragCandidate = null;
   var flowDragSession = null;
   var suppressFlowClickUntil = 0;
+  var editorGuides = { x: [], y: [] };
 
   // ============ 历史栈 ============
   var past = [];
@@ -368,6 +387,7 @@ Error generating stack: `+o.message+`
     notifySelectMulti();
     notifyLayerTree();
     if (gridVisible) showGrid();
+    renderEditorGuides();
     notifyHistory();
     notifyChanged();
   }
@@ -601,6 +621,20 @@ Error generating stack: `+o.message+`
       y.push({ pos: rect.top, start: rect.left, end: rect.right });
       y.push({ pos: rect.top + rect.height / 2, start: rect.left, end: rect.right });
       y.push({ pos: rect.bottom, start: rect.left, end: rect.right });
+    }
+    for (var gx = 0; gx < editorGuides.x.length; gx++) {
+      x.push({
+        pos: editorGuides.x[gx],
+        start: 0,
+        end: document.documentElement.clientHeight,
+      });
+    }
+    for (var gy = 0; gy < editorGuides.y.length; gy++) {
+      y.push({
+        pos: editorGuides.y[gy],
+        start: 0,
+        end: document.documentElement.clientWidth,
+      });
     }
     return { x: x, y: y };
   }
@@ -1243,6 +1277,7 @@ Error generating stack: `+o.message+`
       letterSpacing: letterSpacingNum,
       fontFamily: cs.fontFamily,
       tableInfo: buildTableInfo(el),
+      flowInfo: buildFlowInfo(el),
       layoutInfo: {
         width: rect.width / (zoomLevel || 1),
         height: rect.height / (zoomLevel || 1),
@@ -1764,6 +1799,78 @@ Error generating stack: `+o.message+`
     copyElements([el]);
   }
 
+  /** 删除前把目标子元素占用的空间按比例分给兄弟，保证删除后填满容器。 */
+  function redistributeFlowSiblings(parent, target, axis) {
+    var siblings = flowChildren(parent, target);
+    if (!siblings.length) return;
+    var cs = getComputedStyle(parent);
+    var isFlex = cs.display === 'flex' &&
+      (axis === 'x' ? /^row/.test(cs.flexDirection) : /^column/.test(cs.flexDirection));
+    var sizes = [];
+    var total = 0;
+    for (var i = 0; i < siblings.length; i++) {
+      var rect = siblings[i].getBoundingClientRect();
+      var size = axis === 'x' ? rect.width : rect.height;
+      sizes.push(size);
+      total += size;
+    }
+    if (isFlex) {
+      // flex 容器：按当前占比写 flex-basis 百分比，兄弟自动吃满剩余空间
+      for (var f = 0; f < siblings.length; f++) {
+        var pct = total > 0 ? sizes[f] / total * 100 : 100 / siblings.length;
+        siblings[f].style.setProperty('flex', '1 1 ' + (Math.round(pct * 100) / 100) + '%', 'important');
+        siblings[f].style.setProperty(axis === 'x' ? 'width' : 'height', 'auto');
+      }
+      return;
+    }
+    if (axis === 'x') {
+      // 非 flex 横排（inline-block/float 等）：按比例改写宽度百分比
+      for (var c = 0; c < siblings.length; c++) {
+        var widthPct = total > 0 ? sizes[c] / total * 100 : 100 / siblings.length;
+        siblings[c].style.setProperty('width', (Math.round(widthPct * 100) / 100) + '%', 'important');
+        siblings[c].style.setProperty('box-sizing', 'border-box');
+      }
+    }
+    // 非 flex 纵排：高度本就由内容撑开，无需处理
+  }
+
+  /** 删除容器内选中的子元素（一列/一行），其余兄弟自适应填满容器。 */
+  function deleteContainerRowCol(id) {
+    var el = findById(id || selectedId);
+    if (!el || !el.parentElement) return;
+    var parent = el.parentElement;
+    if (parent === document.body || parent === document.documentElement || !isContainer(parent)) {
+      return deleteEl(el);
+    }
+    var siblings = flowChildren(parent, null);
+    if (siblings.length < 2) return deleteEl(el);
+    var reason = deleteBlockReason(el);
+    if (reason) return rejectDelete(reason);
+    var axis = flowAxis(parent, siblings);
+    beforeChange(axis === 'x' ? '删除列' : '删除行');
+    redistributeFlowSiblings(parent, el, axis);
+    el.classList.remove('ed-selected', 'ed-hover');
+    el.remove();
+    syncAfterDelete();
+    return { ok: true, reason: '' };
+  }
+
+  /** 供宿主面板判断"删除此列/此行"按钮的可用性与文案。 */
+  function buildFlowInfo(el) {
+    if (!el || !el.parentElement) return undefined;
+    var parent = el.parentElement;
+    if (parent === document.body || parent === document.documentElement || !isContainer(parent)) {
+      return undefined;
+    }
+    var siblings = flowChildren(parent, null);
+    if (siblings.length < 2) return undefined;
+    return {
+      axis: flowAxis(parent, siblings),
+      siblingCount: siblings.length,
+      deletable: !deleteBlockReason(el),
+    };
+  }
+
   // ============ 剪贴板复制 / 粘贴 ============
   /** 克隆并清理编辑标记，返回可入库的 outerHTML */
   function cleanCloneForClipboard(el) {
@@ -2049,7 +2156,10 @@ Error generating stack: `+o.message+`
       if (!firstNode) firstNode = node;
       insertionRef = node;
     }
-    if (firstNode) selectElement(firstNode);
+    if (firstNode) {
+      applyGuideSnapToElement(firstNode, 12);
+      selectElement(firstNode);
+    }
     notifyChanged();
     notifyLayerTree();
   }
@@ -2096,6 +2206,7 @@ Error generating stack: `+o.message+`
     if (where === 'before') el.parentNode.insertBefore(newNode, el);
     else el.parentNode.insertBefore(newNode, el.nextSibling);
     assignId(newNode);
+    applyGuideSnapToElement(newNode, 12);
     selectElement(newNode);
     notifyChanged();
     return newNode;
@@ -2135,7 +2246,10 @@ Error generating stack: `+o.message+`
       document.body.appendChild(frag);
       insertedInto = document.body;
     }
-    if (firstNode) selectElement(firstNode);
+    if (firstNode) {
+      applyGuideSnapToElement(firstNode, 12);
+      selectElement(firstNode);
+    }
     notifyChanged();
     notifyLayerTree();
   }
@@ -2302,12 +2416,13 @@ Error generating stack: `+o.message+`
     };
   }
 
-  function closestFlowSnap(values, references) {
+  function closestFlowSnap(values, references, threshold) {
     var result = null;
+    var limit = threshold == null ? 6 : threshold;
     for (var i = 0; i < values.length; i++) {
       for (var j = 0; j < references.length; j++) {
         var delta = references[j] - values[i];
-        if (Math.abs(delta) <= 6 && (!result || Math.abs(delta) < Math.abs(result.delta))) {
+        if (Math.abs(delta) <= limit && (!result || Math.abs(delta) < Math.abs(result.delta))) {
           result = { delta: delta, position: references[j] };
         }
       }
@@ -2315,7 +2430,62 @@ Error generating stack: `+o.message+`
     return result;
   }
 
-  /** 吸附只修正浮层位置；最终提交仍只保存 DOM 顺序。 */
+  function guideSnapAdjustment(el, threshold) {
+    if (!el || !el.isConnected) return null;
+    var tag = flowTag(el);
+    if (isFlowStructuralTag(tag) || /^(TABLE|UL|OL|DL)$/.test(tag)) return null;
+    var rect = el.getBoundingClientRect();
+    var snapX = closestFlowSnap(
+      [rect.left, rect.left + rect.width / 2, rect.right], editorGuides.x, threshold);
+    var snapY = closestFlowSnap(
+      [rect.top, rect.top + rect.height / 2, rect.bottom], editorGuides.y, threshold);
+    if (!snapX && !snapY) return null;
+    var x = snapX ? snapX.delta : 0;
+    var y = snapY ? snapY.delta : 0;
+    return Math.abs(x) >= .01 || Math.abs(y) >= .01 ? { x: x, y: y } : null;
+  }
+
+  function guideTargetAdjustment(el, guideX, guideY) {
+    if (!el || !el.isConnected) return null;
+    var tag = flowTag(el);
+    if (isFlowStructuralTag(tag) || /^(TABLE|UL|OL|DL)$/.test(tag)) return null;
+    var rect = el.getBoundingClientRect();
+    function closestDelta(values, target) {
+      if (target == null) return 0;
+      var delta = target - values[0];
+      for (var i = 1; i < values.length; i++) {
+        var next = target - values[i];
+        if (Math.abs(next) < Math.abs(delta)) delta = next;
+      }
+      return delta;
+    }
+    var x = closestDelta(
+      [rect.left, rect.left + rect.width / 2, rect.right], guideX);
+    var y = closestDelta(
+      [rect.top, rect.top + rect.height / 2, rect.bottom], guideY);
+    return Math.abs(x) >= .01 || Math.abs(y) >= .01 ? { x: x, y: y } : null;
+  }
+
+  function applyGuideAdjustment(el, adjustment) {
+    if (!adjustment) return false;
+    var cs = getComputedStyle(el);
+    var scale = zoomLevel || 1;
+    if (adjustment.x) {
+      el.style.marginLeft = Math.round(
+        ((parseFloat(cs.marginLeft) || 0) + adjustment.x / scale) * 100) / 100 + 'px';
+    }
+    if (adjustment.y) {
+      el.style.marginTop = Math.round(
+        ((parseFloat(cs.marginTop) || 0) + adjustment.y / scale) * 100) / 100 + 'px';
+    }
+    return !!(adjustment.x || adjustment.y);
+  }
+
+  function applyGuideSnapToElement(el, threshold) {
+    return applyGuideAdjustment(el, guideSnapAdjustment(el, threshold));
+  }
+
+  /** 预览在视口坐标中吸附；提交保持 DOM 顺序，并仅对安全元素有限修正 margin。 */
   function positionFlowPreview(session, clientX, clientY, parent) {
     var left = clientX - session.offsetX;
     var top = clientY - session.offsetY;
@@ -2324,6 +2494,8 @@ Error generating stack: `+o.message+`
     var bounds = flowContentRect(parent || document.body);
     refsX.push(bounds.left, bounds.left + bounds.width / 2, bounds.right);
     refsY.push(bounds.top, bounds.top + bounds.height / 2, bounds.bottom);
+    refsX = refsX.concat(editorGuides.x);
+    refsY = refsY.concat(editorGuides.y);
     var siblings = flowChildren(parent, session.source);
     for (var i = 0; i < siblings.length; i++) {
       if (siblings[i] === session.placeholder) continue;
@@ -2337,6 +2509,10 @@ Error generating stack: `+o.message+`
       [top, top + session.height / 2, top + session.height], refsY);
     if (snapX) left += snapX.delta;
     if (snapY) top += snapY.delta;
+    session.guideTargetX = snapX && editorGuides.x.indexOf(snapX.position) >= 0
+      ? snapX.position : null;
+    session.guideTargetY = snapY && editorGuides.y.indexOf(snapY.position) >= 0
+      ? snapY.position : null;
     session.preview.style.left = Math.round(left) + 'px';
     session.preview.style.top = Math.round(top) + 'px';
     if (snapX) positionFlowGuide(session.guideX, 'x', snapX.position, bounds);
@@ -2509,13 +2685,23 @@ Error generating stack: `+o.message+`
     var session = flowDragSession;
     if (!session || (event && event.pointerId !== session.pointerId)) return;
     var placement = session.placement;
-    var changed = !!(commit && placement &&
+    var placementChanged = !!(commit && placement &&
       (placement.parent !== session.originalParent ||
        placement.previous !== session.originalPrevious));
     flowDragSession = null;
     removeFlowRuntime(session);
     suppressFlowClickUntil = Date.now() + 350;
-    if (!changed) {
+    if (!placementChanged) {
+      var snapAdjustment = commit && (session.guideTargetX != null || session.guideTargetY != null)
+        ? guideTargetAdjustment(session.source, session.guideTargetX, session.guideTargetY)
+        : null;
+      if (snapAdjustment) {
+        beforeChange('吸附参考线');
+        applyGuideAdjustment(session.source, snapAdjustment);
+        selectElement(session.source);
+        notifyChanged();
+        return;
+      }
       var current = selectedId ? findById(selectedId) : null;
       if (current) {
         positionToolbar(current);
@@ -2525,6 +2711,10 @@ Error generating stack: `+o.message+`
     }
     beforeChange('移动元素');
     placement.parent.insertBefore(session.source, placement.reference);
+    if (session.guideTargetX != null || session.guideTargetY != null) {
+      applyGuideAdjustment(session.source,
+        guideTargetAdjustment(session.source, session.guideTargetX, session.guideTargetY));
+    }
     selectElement(session.source);
     notifyChanged();
     notifyLayerTree();
@@ -2646,8 +2836,9 @@ Error generating stack: `+o.message+`
       e.preventDefault();
       redo();
     } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
-      // 删除选中元素（多选时批量删除）
+      // 删除选中元素（多选时批量删除；表格多选列时优先批量删列）
       e.preventDefault();
+      if (deleteSelectedTableColumns()) return;
       if (selectedIds.length > 1) multiDelete(); else deleteEl(findById(selectedId));
     } else if (mod && key === 'c' && selectedIds.length > 0) {
       // Ctrl/Cmd+C 复制到内部剪贴板（不动文档）
@@ -3155,9 +3346,14 @@ Error generating stack: `+o.message+`
       width = Math.max(minWidth, Math.min(maxWidth, width));
       var columns = ensureTableColumns(table, gridInfo.columnCount);
       var nextWidths = widths.slice();
-      var selectedWidth = width / selectedColumns.length;
+      var currentSelectedWidth = sumColumnWidths(widths, selectedColumns);
+      var selectedRatios = selectedColumns.map(function (columnIndex) {
+        return currentSelectedWidth > 0
+          ? widths[columnIndex] / currentSelectedWidth
+          : 1 / selectedColumns.length;
+      });
       for (var s = 0; s < selectedColumns.length; s++) {
-        nextWidths[selectedColumns[s]] = selectedWidth;
+        nextWidths[selectedColumns[s]] = width * selectedRatios[s];
       }
       if (freeColumns.length) {
         var remaining = 100 - width - lockedOtherWidth;
@@ -3222,6 +3418,104 @@ Error generating stack: `+o.message+`
     notifySelectMulti();
     notifyHistory();
     notifyChanged();
+  }
+
+  /** 批量删除逻辑列：跨界单元格缩减 colspan，空行/空表段清理，剩余列宽归一到 100%。 */
+  function deleteTableColumns(tableId, columnIndexes) {
+    var table = findById(tableId);
+    if (!table || table.tagName !== 'TABLE') return rejectDelete('目标表格已不存在');
+    var gridInfo = buildTableGrid(table);
+    var indexes = normalizeColumnIndexes(columnIndexes, gridInfo.columnCount);
+    if (!indexes.length) return;
+    if (indexes.length >= gridInfo.columnCount) {
+      return rejectDelete('不能删除表格全部列，请直接删除整个表格');
+    }
+    var widths = tableColumnWidths(table, gridInfo.columnCount);
+    var locked = sanitizeLockedColumnIndexes(table, gridInfo.columnCount, false);
+    beforeChange('删除表格列');
+    var removed = {};
+    for (var i = 0; i < indexes.length; i++) removed[indexes[i]] = true;
+    var placements = gridInfo.placements.slice();
+    for (var p = 0; p < placements.length; p++) {
+      var placement = placements[p];
+      var cell = placement.cell;
+      if (!cell.isConnected) continue;
+      var removeCount = 0;
+      for (var c = placement.column; c < placement.column + placement.columnSpan; c++) {
+        if (removed[c]) removeCount++;
+      }
+      if (!removeCount) continue;
+      if (removeCount >= placement.columnSpan) {
+        cell.remove();
+      } else {
+        var nextSpan = placement.columnSpan - removeCount;
+        if (nextSpan > 1) cell.colSpan = nextSpan;
+        else cell.removeAttribute('colspan');
+      }
+    }
+    // rowspan 占用的单元格被删后可能出现空行，顺带清理空行与空表段
+    var rows = table.rows;
+    for (var r = rows.length - 1; r >= 0; r--) {
+      if (!rows[r].cells.length) rows[r].remove();
+    }
+    var sections = table.children;
+    for (var s = sections.length - 1; s >= 0; s--) {
+      if (/^(THEAD|TBODY|TFOOT)$/.test(sections[s].tagName) && !sections[s].rows.length) {
+        sections[s].remove();
+      }
+    }
+    // 重建 colgroup：剩余列按原宽度占比归一化到 100%
+    var remainIndexes = [];
+    for (c = 0; c < gridInfo.columnCount; c++) {
+      if (!removed[c]) remainIndexes.push(c);
+    }
+    var remainTotal = sumColumnWidths(widths, remainIndexes);
+    var columns = ensureTableColumns(table, remainIndexes.length);
+    var assigned = 0;
+    for (i = 0; i < remainIndexes.length; i++) {
+      var value;
+      if (i === remainIndexes.length - 1) {
+        value = 100 - assigned;
+      } else {
+        value = remainTotal > 0 ? widths[remainIndexes[i]] / remainTotal * 100
+          : 100 / remainIndexes.length;
+        value = Math.round(value * 10000) / 10000;
+        assigned += value;
+      }
+      columns[i].style.setProperty('width', formatTableColumnWidth(value), 'important');
+    }
+    // 锁定列映射到新列序号；被删除的锁定列直接移除
+    if (locked.length) {
+      var nextLocked = [];
+      for (i = 0; i < locked.length; i++) {
+        if (removed[locked[i]]) continue;
+        var shift = 0;
+        for (var k = 0; k < indexes.length; k++) {
+          if (indexes[k] < locked[i]) shift++;
+        }
+        nextLocked.push(locked[i] - shift);
+      }
+      nextLocked = normalizeColumnIndexes(nextLocked, remainIndexes.length);
+      if (nextLocked.length) table.setAttribute(TABLE_LOCK_ATTR, nextLocked.join(','));
+      else table.removeAttribute(TABLE_LOCK_ATTR);
+    }
+    applyResponsiveTableStyle(table);
+    clearTableColumnSelection();
+    tableColumnWidthSession = null;
+    if (table.isConnected) {
+      selectElement(table);
+      notifyChanged();
+      notifyLayerTree();
+    }
+    return { ok: true, reason: '' };
+  }
+
+  /** Delete 键优先消费多列选择：命中则批量删列，返回是否已处理。 */
+  function deleteSelectedTableColumns() {
+    if (!tableColumnSelection) return false;
+    var table = findById(tableColumnSelection.tableId);
+    if (!table) return false;
+    return !!deleteTableColumns(tableColumnSelection.tableId, tableColumnSelection.columnIndexes);
   }
   /** 切换加粗（bold<->normal） */
   function toggleBold() {
@@ -3480,8 +3774,53 @@ Error generating stack: `+o.message+`
   }
   /** 设置网格大小 */
   function setGridSize(size) {
-    gridSize = parseInt(size, 10) || 50;
+    gridSize = Math.max(4, Math.min(500, parseInt(size, 10) || 50));
     if (gridVisible) showGrid();
+  }
+  function setGridConfig(config) {
+    config = config || {};
+    setGridSize(config.size);
+    gridVisible = !!config.visible;
+    showGrid();
+  }
+
+  function normalizeGuideValues(values) {
+    var result = [];
+    if (!Array.isArray(values)) return result;
+    for (var i = 0; i < values.length; i++) {
+      var value = Math.round(Number(values[i]) * 100) / 100;
+      if (!Number.isFinite(value) || value < 0 || value > 10000 ||
+          result.indexOf(value) >= 0) continue;
+      result.push(value);
+    }
+    return result.sort(function (a, b) { return a - b; });
+  }
+
+  function renderEditorGuides() {
+    var old = document.querySelectorAll('[data-ed-user-guide]');
+    for (var i = 0; i < old.length; i++) old[i].remove();
+    var root = document.body || document.documentElement;
+    function append(axis, position) {
+      var guide = document.createElement('div');
+      guide.className = 'ed-user-guide';
+      guide.setAttribute('data-axis', axis);
+      guide.setAttribute('data-ed-user-guide', '1');
+      guide.setAttribute('data-ed-injected', '1');
+      if (axis === 'x') guide.style.left = position + 'px';
+      else guide.style.top = position + 'px';
+      root.appendChild(guide);
+    }
+    for (var x = 0; x < editorGuides.x.length; x++) append('x', editorGuides.x[x]);
+    for (var y = 0; y < editorGuides.y.length; y++) append('y', editorGuides.y[y]);
+  }
+
+  function setEditorGuides(payload) {
+    payload = payload || {};
+    editorGuides = {
+      x: normalizeGuideValues(payload.vertical),
+      y: normalizeGuideValues(payload.horizontal),
+    };
+    renderEditorGuides();
   }
 
   // ============ 画布缩放 ============
@@ -3553,7 +3892,14 @@ Error generating stack: `+o.message+`
           msg.payload.columnIndexes, msg.payload.widthPercent, msg.payload.phase);
         break;
       case 'TOGGLE_TABLE_COLUMN_LOCK':
+      case 'TOGGLE_TABLE_COLUMN_LOCK':
         toggleTableColumnLock(msg.payload.tableId, msg.payload.columnIndexes);
+        break;
+      case 'DELETE_TABLE_COLUMNS':
+        deleteTableColumns(msg.payload.tableId, msg.payload.columnIndexes);
+        break;
+      case 'DELETE_CONTAINER_ROW_COL':
+        deleteContainerRowCol(msg.payload.id);
         break;
       case 'TOGGLE_BOLD':
         toggleBold();
@@ -3596,6 +3942,12 @@ Error generating stack: `+o.message+`
         break;
       case 'SET_GRID_SIZE':
         setGridSize(msg.payload.size);
+        break;
+      case 'SET_GRID_CONFIG':
+        setGridConfig(msg.payload);
+        break;
+      case 'SET_GUIDES':
+        setEditorGuides(msg.payload);
         break;
       case 'GET_LAYER_TREE':
         notifyLayerTree();
@@ -3763,7 +4115,7 @@ function FontRow(e){
   var query=draft.trim().toLocaleLowerCase();
   var source=PRESET_FONTS.concat(systemFonts.filter(function(f){return PRESET_FONTS.indexOf(f)<0}));
   var browseSource=systemFonts.length?systemFonts:PRESET_FONTS;
-  var matches=browseAll?browseSource.slice(0,12):query?source.filter(function(f){return f.toLocaleLowerCase().indexOf(query)>=0}).slice(0,12):[];
+  var matches=browseAll?browseSource:query?source.filter(function(f){return f.toLocaleLowerCase().indexOf(query)>=0}).slice(0,50):[];
   var weightStyles={};
   systemFaces.forEach(function(face){if(face.family.toLocaleLowerCase()===cur.toLocaleLowerCase()){var w=fontStyleWeight(face.style);if(!weightStyles[w]||!/italic|oblique/i.test(face.style))weightStyles[w]=face.style}});
   var currentWeight=normalizedFontWeight(sel.fontWeight);
@@ -3793,7 +4145,7 @@ function FontRow(e){
       setActiveIndex(0);
       setBrowseAll(!0);
       setOpen(!!out.length);
-      showStatus(out.length?"已加载 "+out.length+" 个系统字体，列表已展开；输入关键词可筛选":"未读取到系统字体，请检查权限或手动输入",out.length?"success":"warning");
+      showStatus(out.length?"已加载 "+out.length+" 个系统字体，列表已展开；若列表仍不完整，请在浏览器弹窗中授权“访问所有字体”":"未读取到系统字体，请检查权限或手动输入",out.length?"success":"warning");
     }).catch(function(err){
       if(err&&err.name=="TimeoutError")showStatus("读取超时，请检查浏览器权限后重试","error");
       else if(err&&(err.name=="NotAllowedError"||err.name=="SecurityError"))showStatus("读取失败：浏览器未授权访问本机字体","error");
@@ -4757,6 +5109,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       if (oldTitle) oldTitle.textContent = latestTableInfo.mode === 'table' ? '表格宽度' : '表格列宽';
       if (oldLabel) oldLabel.textContent = latestTableInfo.mode === 'table' ? '当前表格' : '选中列';
       if (oldLock) oldLock.textContent = latestTableInfo.allSelectedLocked ? '解锁选中列' : '锁定选中列';
+      var oldDel = old.querySelector('.ed-table-col-del-btn');
+      if (oldDel) {
+        var oldCols = latestTableInfo.columnIndexes || [];
+        oldDel.textContent = '删除选中列（' + oldCols.length + '）';
+        oldDel.disabled = oldCols.length >= latestTableInfo.columnCount;
+        oldDel.style.display = latestTableInfo.mode === 'table' ? 'none' : '';
+      }
       return;
     }
     var section = document.createElement('div');
@@ -4794,6 +5153,30 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     lockBtn.title = '锁定列不会参与其他列调整时的自动宽度分配';
     lockBtn.addEventListener('click', toggleTableColumnLock);
     lockRow.appendChild(lockBtn);
+    var delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'btn btn-danger ed-table-col-del-btn';
+    delBtn.style.marginLeft = '6px';
+    var delCols = latestTableInfo.columnIndexes || [];
+    delBtn.textContent = '删除选中列（' + delCols.length + '）';
+    delBtn.disabled = delCols.length >= latestTableInfo.columnCount;
+    delBtn.title = '删除选中的整列，剩余列自动分摊表格宽度';
+    if (latestTableInfo.mode === 'table') delBtn.style.display = 'none';
+    delBtn.addEventListener('click', function () {
+      if (!latestTableInfo) return;
+      var count = (latestTableInfo.columnIndexes || []).length;
+      if (!count) return;
+      if (!window.confirm('确定删除选中的 ' + count + ' 列？可通过撤销恢复。')) return;
+      postToIframe({
+        source: 'ed-host',
+        type: 'DELETE_TABLE_COLUMNS',
+        payload: {
+          tableId: latestTableInfo.tableId,
+          columnIndexes: latestTableInfo.columnIndexes,
+        },
+      });
+    });
+    lockRow.appendChild(delBtn);
     var started = false;
     var numberStarted = false;
     range.addEventListener('input', function () {
@@ -4828,6 +5211,57 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     section.appendChild(title); section.appendChild(row); section.appendChild(hint); section.appendChild(lockRow);
     var firstSection = panel.querySelector('.panel-section');
     if (firstSection && firstSection.nextSibling) panel.insertBefore(section, firstSection.nextSibling);
+    else panel.appendChild(section);
+  }
+
+  // ============ 容器行/列删除按钮 ============
+  var latestFlowInfo = null;
+  function sendDeleteContainerRowCol() {
+    if (!latestSelectedId) return;
+    postToIframe({
+      source: 'ed-host',
+      type: 'DELETE_CONTAINER_ROW_COL',
+      payload: { id: latestSelectedId },
+    });
+  }
+  function ensureFlowDeletePanel() {
+    var old = document.getElementById('ed-flow-delete-panel');
+    var panel = document.querySelector('.property-panel');
+    if (!panel || !latestFlowInfo || !latestFlowInfo.deletable || latestFlowInfo.siblingCount < 2) {
+      if (old) old.remove();
+      return;
+    }
+    var isCol = latestFlowInfo.axis === 'x';
+    var btnText = isCol ? '✕ 删除此列' : '✕ 删除此行';
+    var hintText = '删除当前选中的子元素，剩余 ' + (latestFlowInfo.siblingCount - 1) +
+      ' 个兄弟' + (isCol ? '按原占比平分容器宽度' : '自动撑满容器高度');
+    if (old) {
+      var oldBtn = old.querySelector('button');
+      var oldHint = old.querySelector('.ed-flow-delete-hint');
+      var oldTitle = old.querySelector('h4');
+      if (oldBtn) oldBtn.textContent = btnText;
+      if (oldHint) oldHint.textContent = hintText;
+      if (oldTitle) oldTitle.textContent = isCol ? '容器列操作' : '容器行操作';
+      return;
+    }
+    var section = document.createElement('div');
+    section.id = 'ed-flow-delete-panel';
+    section.className = 'panel-section';
+    var title = document.createElement('h4');
+    title.textContent = isCol ? '容器列操作' : '容器行操作';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-danger panel-btn panel-btn-full';
+    btn.textContent = btnText;
+    btn.title = '删除后兄弟元素自动' + (isCol ? '平分宽度' : '撑满高度') + '，可通过撤销恢复';
+    btn.addEventListener('click', sendDeleteContainerRowCol);
+    var hint = document.createElement('div');
+    hint.className = 'ed-flow-delete-hint';
+    hint.style.cssText = 'margin:7px 0 0;color:var(--text-secondary);font-size:11px';
+    hint.textContent = hintText;
+    section.appendChild(title); section.appendChild(btn); section.appendChild(hint);
+    var firstSection2 = panel.querySelector('.panel-section');
+    if (firstSection2 && firstSection2.nextSibling) panel.insertBefore(section, firstSection2.nextSibling);
     else panel.appendChild(section);
   }
 
@@ -5135,7 +5569,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       latestTableInfo = d.payload && d.payload.tableInfo ? d.payload.tableInfo : null;
       latestSelectedId = nextSelectedId;
       latestLayoutInfo = d.payload && d.payload.layoutInfo ? d.payload.layoutInfo : null;
+      latestFlowInfo = d.payload && d.payload.flowInfo ? d.payload.flowInfo : null;
       ensureTableWidthPanel();
+      ensureFlowDeletePanel();
       ensureLayoutPanel();
     } else if (d.type === 'CHANGED') {
       postToIframe({ source: 'ed-host', type: 'GET_DRAFT_HTML' });
@@ -5145,7 +5581,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       latestTableInfo = null;
       latestSelectedId = null;
       latestLayoutInfo = null;
+      latestFlowInfo = null;
+      syncGridConfig();
+      syncGuideConfig();
       ensureTableWidthPanel();
+      ensureFlowDeletePanel();
       ensureLayoutPanel();
     } else if (d.type === 'DELETE_REJECTED') {
       alert((d.payload && d.payload.reason) || '该元素不能删除');
@@ -5219,35 +5659,78 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   });
 
   // ============ G7 标尺与网格切换 ============
+  var GRID_CONFIG_KEY = 'html-editor:grid-config';
   var gridOn = false;
+  var gridSizeUi = 50;
+  try {
+    var savedGridConfig = JSON.parse(localStorage.getItem(GRID_CONFIG_KEY) || 'null');
+    if (savedGridConfig) {
+      gridOn = !!savedGridConfig.visible;
+      gridSizeUi = Math.max(4, Math.min(500, parseInt(savedGridConfig.size, 10) || 50));
+    }
+  } catch (error) {}
+  function saveGridConfig() {
+    try {
+      localStorage.setItem(GRID_CONFIG_KEY, JSON.stringify({
+        visible: gridOn,
+        size: gridSizeUi,
+      }));
+    } catch (error) {}
+  }
+  function syncGridConfig() {
+    postToIframe({
+      source: 'ed-host',
+      type: 'SET_GRID_CONFIG',
+      payload: { visible: gridOn, size: gridSizeUi },
+    });
+    var button = document.getElementById('ed-grid-btn');
+    if (button) {
+      button.classList.toggle('btn-primary', gridOn);
+      button.textContent = '网格 ' + gridSizeUi + 'px';
+    }
+  }
   function ensureGridBtn() {
     var right = ensureToolbarRight(); if (!right) return;
     if (document.getElementById('ed-grid-btn')) return;
     var b = document.createElement('button');
-    b.id = 'ed-grid-btn'; b.type = 'button'; b.className = 'btn'; b.textContent = '📐 网格';
-    b.title = '显示/隐藏对齐网格（可调大小）';
-    b.addEventListener('click', function () {
-      gridOn = !gridOn;
-      postToIframe({ source: 'ed-host', type: 'TOGGLE_GRID' });
-      b.classList.toggle('btn-primary', gridOn);
-    });
-    // 长按 / 右键 弹出尺寸选择
+    b.id = 'ed-grid-btn'; b.type = 'button'; b.className = 'btn';
+    b.title = '设置对齐网格的显示状态与大小';
+    b.addEventListener('click', function () { openGridSize(b); });
     b.addEventListener('contextmenu', function (e) { e.preventDefault(); openGridSize(b); });
     right.insertBefore(b, right.firstChild);
+    syncGridConfig();
   }
   function openGridSize(btn) {
     var box = document.createElement('div');
     var sizes = [10, 20, 40, 50, 80, 100, 120];
-    box.innerHTML = '<p style="font-size:12px;color:var(--text-tertiary);margin:0 0 12px">选择网格大小（像素），切换显示用「网格」按钮</p>';
+    var visibility = document.createElement('button');
+    visibility.className = 'btn' + (gridOn ? ' btn-primary' : '');
+    visibility.style.cssText = 'width:100%;justify-content:center;margin-bottom:12px';
+    visibility.textContent = gridOn ? '隐藏网格' : '显示网格';
+    visibility.addEventListener('click', function () {
+      gridOn = !gridOn;
+      saveGridConfig();
+      syncGridConfig();
+      visibility.classList.toggle('btn-primary', gridOn);
+      visibility.textContent = gridOn ? '隐藏网格' : '显示网格';
+    });
+    box.appendChild(visibility);
+    var tip = document.createElement('p');
+    tip.style.cssText = 'font-size:12px;color:var(--text-tertiary);margin:0 0 12px';
+    tip.textContent = '选择网格大小（像素），设置会自动保存';
+    box.appendChild(tip);
     var group = document.createElement('div');
     group.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap';
     sizes.forEach(function (sz) {
       var g = document.createElement('button');
-      g.className = 'btn'; g.style.cssText = 'min-width:56px;justify-content:center';
+      g.className = 'btn' + (sz === gridSizeUi ? ' btn-primary' : '');
+      g.style.cssText = 'min-width:56px;justify-content:center';
       g.textContent = sz + 'px';
       g.addEventListener('click', function () {
-        postToIframe({ source: 'ed-host', type: 'SET_GRID_SIZE', payload: { size: sz } });
-        if (!gridOn) { gridOn = true; postToIframe({ source: 'ed-host', type: 'TOGGLE_GRID' }); if (btn) btn.classList.add('btn-primary'); }
+        gridSizeUi = sz;
+        gridOn = true;
+        saveGridConfig();
+        syncGridConfig();
         closeModal();
       });
       group.appendChild(g);
@@ -5256,20 +5739,195 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     customRow.style.cssText = 'display:flex;gap:6px;align-items:center;margin-top:12px';
     customRow.innerHTML = '<span style="font-size:12px;color:var(--text-secondary)">自定义</span>';
     var inp = document.createElement('input');
-    inp.type = 'number'; inp.className = 'input'; inp.style.width = '80px'; inp.value = '50'; inp.min = '4'; inp.max = '500';
+    inp.type = 'number'; inp.className = 'input'; inp.style.width = '80px'; inp.value = String(gridSizeUi); inp.min = '4'; inp.max = '500';
     var apply = document.createElement('button');
     apply.className = 'btn btn-primary'; apply.textContent = '应用';
     apply.addEventListener('click', function () {
       var v = parseInt(inp.value, 10);
       if (v >= 4 && v <= 500) {
-        postToIframe({ source: 'ed-host', type: 'SET_GRID_SIZE', payload: { size: v } });
-        if (!gridOn) { gridOn = true; postToIframe({ source: 'ed-host', type: 'TOGGLE_GRID' }); if (btn) btn.classList.add('btn-primary'); }
+        gridSizeUi = v;
+        gridOn = true;
+        saveGridConfig();
+        syncGridConfig();
         closeModal();
       }
     });
     customRow.appendChild(inp); customRow.appendChild(apply);
     box.appendChild(group); box.appendChild(customRow);
     openModal('网格大小', box, { size: 'sm' });
+  }
+
+  var GUIDE_CONFIG_KEY = 'html-editor:guide-config';
+  var guidesOn = true;
+  var verticalGuidesUi = [];
+  var horizontalGuidesUi = [];
+  function normalizeGuideConfigValues(values) {
+    var result = [];
+    if (!Array.isArray(values)) return result;
+    values.forEach(function (raw) {
+      var value = Math.round(Number(raw) * 100) / 100;
+      if (!Number.isFinite(value) || value < 0 || value > 10000 ||
+          result.indexOf(value) >= 0) return;
+      result.push(value);
+    });
+    return result.sort(function (a, b) { return a - b; });
+  }
+  try {
+    var savedGuideConfig = JSON.parse(localStorage.getItem(GUIDE_CONFIG_KEY) || 'null');
+    if (savedGuideConfig) {
+      guidesOn = savedGuideConfig.visible !== false;
+      verticalGuidesUi = normalizeGuideConfigValues(savedGuideConfig.vertical);
+      horizontalGuidesUi = normalizeGuideConfigValues(savedGuideConfig.horizontal);
+    }
+  } catch (error) {}
+  function saveGuideConfig() {
+    try {
+      localStorage.setItem(GUIDE_CONFIG_KEY, JSON.stringify({
+        visible: guidesOn,
+        vertical: verticalGuidesUi,
+        horizontal: horizontalGuidesUi,
+      }));
+    } catch (error) {}
+  }
+  function syncGuideConfig() {
+    postToIframe({
+      source: 'ed-host',
+      type: 'SET_GUIDES',
+      payload: {
+        vertical: guidesOn ? verticalGuidesUi : [],
+        horizontal: guidesOn ? horizontalGuidesUi : [],
+      },
+    });
+    var button = document.getElementById('ed-guide-btn');
+    if (button) {
+      var count = verticalGuidesUi.length + horizontalGuidesUi.length;
+      button.classList.toggle('btn-primary', guidesOn && count > 0);
+      button.textContent = '参考线' + (count ? ' ' + count : '');
+      button.title = guidesOn ? '管理水平与垂直参考线' : '参考线已隐藏，点击管理';
+    }
+  }
+  function updateGuideConfig() {
+    saveGuideConfig();
+    syncGuideConfig();
+  }
+  function ensureGuideBtn() {
+    var right = ensureToolbarRight(); if (!right) return;
+    if (document.getElementById('ed-guide-btn')) return;
+    var button = document.createElement('button');
+    button.id = 'ed-guide-btn';
+    button.type = 'button';
+    button.className = 'btn';
+    button.addEventListener('click', openGuideManager);
+    right.insertBefore(button, right.firstChild);
+    syncGuideConfig();
+  }
+  function openGuideManager() {
+    var box = document.createElement('div');
+    var visibility = document.createElement('button');
+    visibility.className = 'btn' + (guidesOn ? ' btn-primary' : '');
+    visibility.style.cssText = 'width:100%;justify-content:center;margin-bottom:12px';
+    visibility.textContent = guidesOn ? '隐藏参考线' : '显示参考线';
+    visibility.addEventListener('click', function () {
+      guidesOn = !guidesOn;
+      updateGuideConfig();
+      visibility.classList.toggle('btn-primary', guidesOn);
+      visibility.textContent = guidesOn ? '隐藏参考线' : '显示参考线';
+    });
+    box.appendChild(visibility);
+
+    var tip = document.createElement('p');
+    tip.style.cssText = 'font-size:12px;color:var(--text-tertiary);margin:0 0 12px;line-height:1.6';
+    tip.textContent = '坐标以画布左上角为原点，单位为像素；新增和拖动元素会在靠近参考线时吸附。';
+    box.appendChild(tip);
+
+    function addInputRow(label, axis) {
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:10px';
+      var name = document.createElement('span');
+      name.style.cssText = 'width:72px;font-size:12px;color:var(--text-secondary)';
+      name.textContent = label;
+      var input = document.createElement('input');
+      input.type = 'number';
+      input.className = 'input';
+      input.min = '0';
+      input.max = '10000';
+      input.step = '1';
+      input.placeholder = '坐标 px';
+      input.style.flex = '1';
+      var add = document.createElement('button');
+      add.className = 'btn btn-primary';
+      add.textContent = '添加';
+      function submit() {
+        if (!String(input.value).trim()) return;
+        var value = Math.round(Number(input.value) * 100) / 100;
+        if (!Number.isFinite(value) || value < 0 || value > 10000) return;
+        var values = axis === 'x' ? verticalGuidesUi : horizontalGuidesUi;
+        if (values.indexOf(value) < 0) values.push(value);
+        values.sort(function (a, b) { return a - b; });
+        guidesOn = true;
+        updateGuideConfig();
+        openGuideManager();
+      }
+      add.addEventListener('click', submit);
+      input.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') submit();
+      });
+      row.appendChild(name);
+      row.appendChild(input);
+      row.appendChild(add);
+      box.appendChild(row);
+    }
+    addInputRow('垂直参考线', 'x');
+    addInputRow('水平参考线', 'y');
+
+    var list = document.createElement('div');
+    list.style.cssText = 'max-height:240px;overflow:auto;border-top:1px solid var(--border);padding-top:8px';
+    function appendGuideRows(label, axis, values) {
+      values.forEach(function (value) {
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 0';
+        var text = document.createElement('span');
+        text.style.cssText = 'flex:1;font-size:13px;color:var(--text-primary)';
+        text.textContent = label + ' · ' + value + 'px';
+        var remove = document.createElement('button');
+        remove.className = 'btn';
+        remove.textContent = '删除';
+        remove.addEventListener('click', function () {
+          var target = axis === 'x' ? verticalGuidesUi : horizontalGuidesUi;
+          var index = target.indexOf(value);
+          if (index >= 0) target.splice(index, 1);
+          updateGuideConfig();
+          openGuideManager();
+        });
+        row.appendChild(text);
+        row.appendChild(remove);
+        list.appendChild(row);
+      });
+    }
+    appendGuideRows('垂直', 'x', verticalGuidesUi);
+    appendGuideRows('水平', 'y', horizontalGuidesUi);
+    if (!verticalGuidesUi.length && !horizontalGuidesUi.length) {
+      var empty = document.createElement('div');
+      empty.style.cssText = 'padding:12px 0;text-align:center;font-size:12px;color:var(--text-tertiary)';
+      empty.textContent = '尚未添加参考线';
+      list.appendChild(empty);
+    }
+    box.appendChild(list);
+
+    if (verticalGuidesUi.length || horizontalGuidesUi.length) {
+      var clear = document.createElement('button');
+      clear.className = 'btn';
+      clear.style.cssText = 'width:100%;justify-content:center;margin-top:10px';
+      clear.textContent = '清空全部参考线';
+      clear.addEventListener('click', function () {
+        verticalGuidesUi = [];
+        horizontalGuidesUi = [];
+        updateGuideConfig();
+        openGuideManager();
+      });
+      box.appendChild(clear);
+    }
+    openModal('参考线', box, { size: 'sm' });
   }
 
   // ============ G4 历史可视化 ============
@@ -5805,7 +6463,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
     moveById('history', ['ed-history-btn']);
 
-    moveById('view', ['ed-zoom-out', 'ed-zoom-label', 'ed-zoom-in', 'ed-grid-btn', 'ed-layer-btn']);
+    moveById('view', ['ed-zoom-out', 'ed-zoom-label', 'ed-zoom-in', 'ed-grid-btn', 'ed-guide-btn', 'ed-layer-btn']);
     moveById('content', ['ed-library-btn', 'ed-batch-btn', 'ed-overlay-btn', 'ed-blur-btn']);
     moveButtons('danger', function (button) {
       return button.getAttribute('title') === '清空画布' || toolbarButtonText(button) === '清空';
@@ -5835,8 +6493,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   function start() {
     ensureTextAlignTitle();
     ensureTableWidthPanel();
+    ensureFlowDeletePanel();
     ensureLayoutPanel();
     ensureGridBtn();
+    ensureGuideBtn();
     ensureHistoryBtn();
     ensureLibraryBtn();
     ensureBatchBtn();
