@@ -208,19 +208,41 @@ Error generating stack: `+o.message+`
 .ed-user-guide {
   position: fixed !important;
   z-index: 2147483643 !important;
-  background: #00b8d9 !important;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, .5) !important;
   pointer-events: none !important;
+  background: transparent !important;
+}
+/* 中心 1px 染色线，外层留透明命中区（宽高由 JS 设置为 5px 手柄） */
+.ed-user-guide::before {
+  content: '';
+  position: absolute;
+  background: #00b8d9;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .5);
 }
 .ed-user-guide[data-axis="x"] {
   top: 0 !important;
-  bottom: 0 !important;
-  width: 1px !important;
+}
+.ed-user-guide[data-axis="x"]::before {
+  left: 2px;
+  width: 1px;
+  top: 0;
+  bottom: 0;
 }
 .ed-user-guide[data-axis="y"] {
   left: 0 !important;
-  right: 0 !important;
-  height: 1px !important;
+}
+.ed-user-guide[data-axis="y"]::before {
+  top: 2px;
+  height: 1px;
+  left: 0;
+  right: 0;
+}
+/* 拖动中的幽灵参考线 */
+.ed-user-guide-preview {
+  opacity: .85 !important;
+}
+.ed-user-guide-preview::before {
+  background: #f53f3f !important;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .55) !important;
 }
 
 /* 右键菜单由父窗口 React 管理，iframe 内不再注入遮罩层 */
@@ -272,6 +294,10 @@ Error generating stack: `+o.message+`
   var flowDragSession = null;
   var suppressFlowClickUntil = 0;
   var editorGuides = { x: [], y: [] };
+  var guideDragActive = null; // 标尺拖参考线的进行态（由宿主代理层驱动）
+  var guideDragCancelFn = null; // 参考线拖动中，宿主兜底结束（鼠标在 iframe 外松开时调用）
+  var rulerStripOn = true; // 宿主标尺是否可见（可见时顶部/左侧标尺条为参考线删除区）
+  var GUIDE_RULER_STRIP = 36; // 与宿主 RULER_SIZE 一致
 
   // ============ 历史栈 ============
   var past = [];
@@ -869,6 +895,8 @@ Error generating stack: `+o.message+`
       return;
     }
     if (!isEditableTarget(el)) return;
+    // html/body 根元素不纳入选中（点击内容区之外时 elementFromPoint 会命中它们）
+    if (el === document.body || el === document.documentElement) return;
     assignId(el);
     selectedId = el.getAttribute(ID_ATTR);
     selectedIds = [selectedId];
@@ -2945,8 +2973,14 @@ Error generating stack: `+o.message+`
     }
     return null;
   }
-  /** 设置/替换叠加图（不存在则创建），并应用混合模式 */
-  function setOverlayImage(src, mode) {
+  /** 归一化不透明度：0~1，非法值回退为 1 */
+  function normalizeOverlayOpacity(opacity) {
+    var v = Number(opacity);
+    if (!Number.isFinite(v)) return 1;
+    return Math.min(1, Math.max(0, v));
+  }
+  /** 设置/替换叠加图（不存在则创建），并应用混合模式与不透明度 */
+  function setOverlayImage(src, mode, opacity) {
     var target = findOverlayTarget();
     if (!target) {
       HOST.postMessage({ source: 'ed-editor', type: 'OVERLAY_ERROR', payload: { msg: '请先选中一个容器（或页面需包含 .hero 区域）' } }, '*');
@@ -2969,6 +3003,7 @@ Error generating stack: `+o.message+`
     }
     if (src) ov.setAttribute('src', src);
     ov.style.mixBlendMode = mode || 'overlay';
+    ov.style.opacity = String(normalizeOverlayOpacity(opacity));
     assignId(ov);
     notifyChanged();
     notifyLayerTree();
@@ -2980,6 +3015,15 @@ Error generating stack: `+o.message+`
     if (!ov) return;
     beforeChangeCoalesced('overlay-mode', '混合模式');
     ov.style.mixBlendMode = mode;
+    notifyChangedDebounced();
+  }
+  /** 实时调整不透明度（预览）：合并历史快照 + 防抖通知 */
+  function setOverlayOpacity(opacity) {
+    var target = findOverlayTarget();
+    var ov = findOverlayImg(target);
+    if (!ov) return;
+    beforeChangeCoalesced('overlay-opacity', '不透明度');
+    ov.style.opacity = String(normalizeOverlayOpacity(opacity));
     notifyChangedDebounced();
   }
   /** 移除叠加图（弹窗"取消"时恢复原状用） */
@@ -2999,7 +3043,12 @@ Error generating stack: `+o.message+`
     HOST.postMessage({
       source: 'ed-editor', type: 'OVERLAY_STATE',
       payload: ov
-        ? { has: true, src: ov.getAttribute('src') || '', mode: ov.style.mixBlendMode || 'overlay' }
+        ? {
+            has: true,
+            src: ov.getAttribute('src') || '',
+            mode: ov.style.mixBlendMode || 'overlay',
+            opacity: normalizeOverlayOpacity(ov.style.opacity === '' ? 1 : parseFloat(ov.style.opacity)),
+          }
         : { has: false },
     }, '*');
   }
@@ -3800,18 +3849,133 @@ Error generating stack: `+o.message+`
     var old = document.querySelectorAll('[data-ed-user-guide]');
     for (var i = 0; i < old.length; i++) old[i].remove();
     var root = document.body || document.documentElement;
+    // 显式给定宽高：bottom:0/right:0 会被 zoom 放大，导致参考线覆盖到 HTML 之外
+    var docW = Math.max(
+      document.documentElement ? document.documentElement.clientWidth : 0,
+      document.body ? document.body.scrollWidth : 0, 1);
+    var docH = Math.max(
+      document.documentElement ? document.documentElement.scrollHeight : 0,
+      document.body ? document.body.scrollHeight : 0, 1);
     function append(axis, position) {
       var guide = document.createElement('div');
       guide.className = 'ed-user-guide';
       guide.setAttribute('data-axis', axis);
       guide.setAttribute('data-ed-user-guide', '1');
       guide.setAttribute('data-ed-injected', '1');
-      if (axis === 'x') guide.style.left = position + 'px';
-      else guide.style.top = position + 'px';
+      guide.setAttribute('data-ed-guide-pos', String(position));
+      guide.style.pointerEvents = 'auto';
+      guide.style.cursor = axis === 'x' ? 'col-resize' : 'row-resize';
+      if (axis === 'x') {
+        guide.style.left = position + 'px';
+        guide.style.width = '5px';
+        guide.style.marginLeft = '-2px';
+        guide.style.height = docH + 'px';
+      } else {
+        guide.style.top = position + 'px';
+        guide.style.height = '5px';
+        guide.style.marginTop = '-2px';
+        guide.style.width = docW + 'px';
+      }
+      guide.title = '拖动调整参考线位置，拖到画布边缘（标尺处）删除';
+      guide.addEventListener('dblclick', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        deleteEditorGuide(axis, position);
+      });
+      attachGuideGuideDrag(guide, axis, position);
       root.appendChild(guide);
     }
     for (var x = 0; x < editorGuides.x.length; x++) append('x', editorGuides.x[x]);
     for (var y = 0; y < editorGuides.y.length; y++) append('y', editorGuides.y[y]);
+  }
+
+  /** 让参考线可被拖动：mousedown 后跟手移动；
+   *  垂直参考线拖到左侧标尺/水平参考线拖到顶部标尺（或越过画布边缘）后松开 → 删除；
+   *  鼠标在 iframe 外松开时，由宿主 GUIDE_DRAG_CANCEL 兜底结束。 */
+  function attachGuideGuideDrag(el, axis, origPos) {
+    el.addEventListener('mousedown', function (e) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var scale = zoomLevel || 1;
+      var startDoc = origPos;
+      var latest = origPos;
+      var moved = false;
+      var outside = false;
+      var done = false;
+      previewGuide(null);
+      function docPos(ev) {
+        return axis === 'x'
+          ? (ev.clientX + (window.scrollX || 0)) / scale
+          : (ev.clientY + (window.scrollY || 0)) / scale;
+      }
+      function isOutsideViewport(ev) {
+        var w = document.documentElement.clientWidth;
+        var h = document.documentElement.clientHeight;
+        return ev.clientX < 0 || ev.clientY < 0 || ev.clientX > w || ev.clientY > h;
+      }
+      function isInRulerStrip(ev) {
+        // 宿主标尺盖在 iframe 顶部/左侧，指针进入该条带即视为"拖回标尺"
+        if (!rulerStripOn) return false;
+        return axis === 'x' ? ev.clientX <= GUIDE_RULER_STRIP : ev.clientY <= GUIDE_RULER_STRIP;
+      }
+      function mm(ev) {
+        moved = true;
+        latest = Math.min(10000, Math.max(0, Math.round(docPos(ev) * 100) / 100));
+        outside = isInRulerStrip(ev) || isOutsideViewport(ev);
+        el.style.opacity = outside ? '0.35' : '';
+        previewGuide(axis, latest);
+        if (axis === 'x') el.style.left = latest + 'px';
+        else el.style.top = latest + 'px';
+      }
+      function cleanup() {
+        window.removeEventListener('mousemove', mm, true);
+        window.removeEventListener('mouseup', mu, true);
+        guideDragCancelFn = null;
+      }
+      function commit() {
+        if (done) return;
+        done = true;
+        cleanup();
+        previewGuide(null);
+        var list = axis === 'x' ? editorGuides.x : editorGuides.y;
+        var idx = list.indexOf(startDoc);
+        if (outside && moved) {
+          if (idx >= 0) {
+            list.splice(idx, 1);
+            renderEditorGuides();
+            commitGuideChange('删除参考线');
+          }
+          return;
+        }
+        if (moved && idx >= 0) {
+          var others = list.slice(); others.splice(idx, 1);
+          if (others.indexOf(latest) < 0) {
+            list[idx] = latest;
+            list.sort(function (a, b) { return a - b; });
+          }
+          renderEditorGuides();
+          commitGuideChange('移动参考线');
+        } else {
+          renderEditorGuides(); // 复位样式
+        }
+      }
+      function mu(ev) {
+        if (ev) mm(ev); // 用松手位置做最终落点判定
+        commit();
+        if (HOST && HOST.postMessage) {
+          HOST.postMessage({ source: 'ed-editor', type: 'GUIDE_INTERACTIVE_END' }, '*');
+        }
+      }
+      window.addEventListener('mousemove', mm, true);
+      window.addEventListener('mouseup', mu, true);
+      // 兜底：鼠标在 iframe 外松开时由宿主通知结束
+      guideDragCancelFn = function (payload) {
+        if (payload && payload.inside) return; // 松手点在 iframe 内，正常 mouseup 会处理
+        outside = outside || !!(payload && payload.outside);
+        commit();
+      };
+    });
   }
 
   function setEditorGuides(payload) {
@@ -3821,6 +3985,58 @@ Error generating stack: `+o.message+`
       y: normalizeGuideValues(payload.horizontal),
     };
     renderEditorGuides();
+  }
+
+  // ============ 标尺参考线拖拽（宿主窗口在 iframe 上覆盖代理层，转发坐标到这里） ============
+  function guideDragState() {
+    return {
+      x: editorGuides.x.slice(),
+      y: editorGuides.y.slice(),
+      frameW: document.documentElement.clientWidth,
+      frameH: document.documentElement.clientHeight,
+    };
+  }
+  /** 预览一条尚未提交的参考线（drag 中的幽灵线），null 清除 */
+  var previewGuideEl = null;
+  function previewGuide(axis, pos) {
+    if (axis == null || pos == null) {
+      if (previewGuideEl) { previewGuideEl.remove(); previewGuideEl = null; }
+      return;
+    }
+    if (!previewGuideEl) {
+      previewGuideEl = document.createElement('div');
+      previewGuideEl.className = 'ed-user-guide ed-user-guide-preview';
+      previewGuideEl.setAttribute('data-ed-injected', '1');
+      (document.body || document.documentElement).appendChild(previewGuideEl);
+    }
+    previewGuideEl.setAttribute('data-axis', axis);
+    if (axis === 'x') {
+      previewGuideEl.style.left = pos + 'px';
+      previewGuideEl.style.width = '5px';
+      previewGuideEl.style.marginLeft = '-2px';
+    } else {
+      previewGuideEl.style.top = pos + 'px';
+      previewGuideEl.style.height = '5px';
+      previewGuideEl.style.marginTop = '-2px';
+    }
+  }
+  function commitGuideChange(label) {
+    beforeChange(label || '参考线');
+    notifyChanged();
+    HOST.postMessage({
+      source: 'ed-editor', type: 'GUIDES_CHANGED',
+      payload: { vertical: editorGuides.x.slice(), horizontal: editorGuides.y.slice() },
+    }, '*');
+  }
+  function deleteEditorGuide(axis, position) {
+    var list = axis === 'x' ? editorGuides.x : editorGuides.y;
+    var index = list.indexOf(position);
+    if (index < 0) return false;
+    previewGuide(null);
+    list.splice(index, 1);
+    renderEditorGuides();
+    commitGuideChange('删除参考线');
+    return true;
   }
 
   // ============ 画布缩放 ============
@@ -3855,10 +4071,13 @@ Error generating stack: `+o.message+`
         setBgImage(msg.payload.id, msg.payload.src);
         break;
       case 'SET_OVERLAY_IMAGE':
-        setOverlayImage(msg.payload.src, msg.payload.mode);
+        setOverlayImage(msg.payload.src, msg.payload.mode, msg.payload.opacity);
         break;
       case 'SET_OVERLAY_MODE':
         setOverlayMode(msg.payload.mode);
+        break;
+      case 'SET_OVERLAY_OPACITY':
+        setOverlayOpacity(msg.payload.opacity);
         break;
       case 'REMOVE_OVERLAY':
         removeOverlay();
@@ -3949,6 +4168,83 @@ Error generating stack: `+o.message+`
       case 'SET_GUIDES':
         setEditorGuides(msg.payload);
         break;
+      case 'GUIDE_DRAG_CANCEL':
+        if (guideDragCancelFn) guideDragCancelFn(msg.payload || {});
+        break;
+      case 'DELETE_GUIDE': {
+        var guidePayload = msg.payload || {};
+        deleteEditorGuide(guidePayload.axis, guidePayload.value);
+        break;
+      }
+      case 'SET_RULER_VISIBLE':
+        rulerStripOn = !msg.payload || msg.payload.visible !== false;
+        break;
+      case 'GET_GUIDE_DRAG_STATE': {
+        var st = guideDragState();
+        st.requestId = msg.payload && msg.payload.requestId;
+        HOST.postMessage({ source: 'ed-editor', type: 'GUIDE_DRAG_STATE', payload: st }, '*');
+        break;
+      }
+      case 'GUIDE_DRAG_MOVE': {
+        var pm = msg.payload || {};
+        var docPos = Math.round(Number(pm.doc) * 100) / 100;
+        if (!Number.isFinite(docPos)) break;
+        if (pm.phase === 'start' && pm.mode === 'create') {
+          guideDragActive = { axis: pm.axis, mode: 'create', previewPos: Math.min(10000, Math.max(0, docPos)) };
+          previewGuide(pm.axis, guideDragActive.previewPos);
+        } else if (pm.mode === 'move' && typeof pm.index === 'number') {
+          // 宿主手柄驱动的“移动已有参考线”：拖动中仅绘制预览，松手才原子提交。
+          var mvList = pm.axis === 'x' ? editorGuides.x : editorGuides.y;
+          var targetPos = Math.min(10000, Math.max(0, docPos));
+          if (pm.phase === 'move') {
+            if (mvList.indexOf(pm.startValue) >= 0) previewGuide(pm.axis, targetPos);
+          } else if (pm.phase === 'cancel') {
+            previewGuide(null);
+            renderEditorGuides();
+          } else if (pm.phase === 'end') {
+            previewGuide(null);
+            var moveIdx = mvList.indexOf(pm.startValue);
+            if (moveIdx >= 0 && pm.moved) {
+              if (pm.outside) {
+                mvList.splice(moveIdx, 1);
+                renderEditorGuides();
+                commitGuideChange('删除参考线');
+              } else {
+                var otherGuides = mvList.slice();
+                otherGuides.splice(moveIdx, 1);
+                if (targetPos !== pm.startValue && otherGuides.indexOf(targetPos) < 0) {
+                  mvList[moveIdx] = targetPos;
+                  mvList.sort(function (a, b) { return a - b; });
+                  renderEditorGuides();
+                  commitGuideChange('移动参考线');
+                } else {
+                  renderEditorGuides();
+                }
+              }
+            } else {
+              renderEditorGuides();
+            }
+          }
+        } else if (pm.phase === 'move' && guideDragActive && guideDragActive.axis === pm.axis) {
+          guideDragActive.previewPos = Math.min(10000, Math.max(0, docPos));
+          previewGuide(pm.axis, guideDragActive.previewPos);
+        } else if (pm.phase === 'end' && guideDragActive) {
+          var fin = Math.min(10000, Math.max(0, docPos));
+          var finList = guideDragActive.axis === 'x' ? editorGuides.x : editorGuides.y;
+          var had = guideDragActive;
+          guideDragActive = null;
+          previewGuide(null);
+          if (had.mode === 'create' && finList.indexOf(fin) < 0) {
+            finList.push(fin);
+            finList.sort(function (a, b) { return a - b; });
+            renderEditorGuides();
+            commitGuideChange('新增参考线');
+          } else {
+            renderEditorGuides();
+          }
+        }
+        break;
+      }
       case 'GET_LAYER_TREE':
         notifyLayerTree();
         break;
@@ -4043,6 +4339,23 @@ Error generating stack: `+o.message+`
       if (e.button === 0) {
         HOST.postMessage({ source: 'ed-editor', type: 'CANVAS_CLICK' }, '*');
       }
+    }, true);
+    // 指针在画布内移动时，把视口坐标上报给宿主（宿主用来在参考线处激活拖拽手柄）。
+    // iframe 会吞掉 pointermove，宿主收不到 hover，必须由 iframe 主动上报。
+    var pointerReportRaf = 0;
+    var lastPointerEvt = null;
+    document.addEventListener('mousemove', function (e) {
+      lastPointerEvt = { x: e.clientX, y: e.clientY };
+      if (pointerReportRaf) return;
+      pointerReportRaf = requestAnimationFrame(function () {
+        pointerReportRaf = 0;
+        if (lastPointerEvt) {
+          HOST.postMessage({
+            source: 'ed-editor', type: 'CANVAS_POINTER',
+            payload: { x: lastPointerEvt.x, y: lastPointerEvt.y },
+          }, '*');
+        }
+      });
     }, true);
     document.addEventListener('dblclick', handleDblClick, true);
     document.addEventListener('contextmenu', handleContext, true);
@@ -4620,6 +4933,24 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 .ed-box-padding>.ed-box-edge.ed-box-left{left:3px}
 .ed-box-edge input{width:52px;height:20px;margin:-1px -3px;padding:1px 3px;border:1px solid var(--accent);border-radius:3px;font-size:10px;outline:none}
 .ed-box-edge:has(input):after{display:none}
+</style>
+<style id="ed-ruler-style">
+/* 画布标尺（顶部/左侧），覆盖在 iframe 画布上方，随内容滚动/缩放重绘 */
+.ed-ruler-corner{position:absolute;top:0;left:0;width:36px;height:36px;background:#f5f6f8;border-right:1px solid #e4e6eb;border-bottom:1px solid #e4e6eb;z-index:60;display:flex;align-items:center;justify-content:center;color:#86909c;font-size:10px;cursor:default;user-select:none}
+.ed-ruler{position:absolute;background:#fff;z-index:59;user-select:none}
+.ed-ruler-h{top:0;left:36px;right:0;height:36px;border-bottom:1px solid #e4e6eb;cursor:row-resize}
+.ed-ruler-v{top:36px;left:0;bottom:0;width:36px;border-right:1px solid #e4e6eb;cursor:col-resize}
+.ed-ruler canvas{display:block}
+/* 拖参考线时覆盖在 iframe 上的透明代理层（捕获 pointer 事件）。
+   默认 pointer-events:none 穿透到画布，仅在拖拽进行中被激活。 */
+.ed-guide-drag-proxy{position:absolute;z-index:58;background:transparent;pointer-events:none}
+.ed-guide-drag-proxy.ed-active{pointer-events:auto}
+.ed-guide-drag-proxy[data-axis="x"]{cursor:col-resize}
+.ed-guide-drag-proxy[data-axis="y"]{cursor:row-resize}
+/* 画布上的参考线手柄：跟随参考线位置的细条，命中时接管拖拽。平时穿透，由 JS 激活。 */
+.ed-guide-handle{position:absolute;top:0;left:0;z-index:58;background:transparent;pointer-events:none;touch-action:none}
+.ed-guide-handle[data-axis="x"]{cursor:col-resize}
+.ed-guide-handle[data-axis="y"]{cursor:row-resize}
 </style>
 <script id="ed-slice-runtime">
 (function(){
@@ -5798,6 +6129,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         horizontal: guidesOn ? horizontalGuidesUi : [],
       },
     });
+    // 同步宿主手柄层缓存（"已加载"的参考线从这里来，不走 GUIDES_CHANGED 回发）。
+    // rulerLatestGuides / refreshGuideHandles 在后面声明，调用只会发生在用户交互之后（声明已执行）。
+    rulerLatestGuides = {
+      x: (guidesOn ? verticalGuidesUi : []).slice(),
+      y: (guidesOn ? horizontalGuidesUi : []).slice(),
+    };
+    if (typeof refreshGuideHandles === 'function') refreshGuideHandles();
     var button = document.getElementById('ed-guide-btn');
     if (button) {
       var count = verticalGuidesUi.length + horizontalGuidesUi.length;
@@ -6297,13 +6635,19 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     var box = document.createElement('div');
     box.innerHTML = ''
       + '<p style="font-size:12px;color:var(--text-tertiary);margin:0 0 12px;line-height:1.6">'
-      + '给选中的容器（未选中则取页面头部 .hero 区）叠加一张图片，<br>并选择 Photoshop 式的图层混合模式，效果实时预览。</p>'
+      + '给选中的容器（未选中则取页面头部 .hero 区）叠加一张图片，<br>并选择 Photoshop 式的图层混合模式与不透明度，效果实时预览。</p>'
       + '<label style="font-size:12px;color:var(--text-secondary)">叠加图片</label>'
       + '<input type="file" accept="image/*" class="ed-ov-file" style="font-size:12px;margin:6px 0 14px">'
       + '<label style="font-size:12px;color:var(--text-secondary)">混合模式</label>'
-      + '<div class="ed-ov-modes" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:6px 0 4px"></div>';
+      + '<div class="ed-ov-modes" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:6px 0 12px"></div>'
+      + '<label style="font-size:12px;color:var(--text-secondary)">不透明度</label>'
+      + '<div style="display:flex;align-items:center;gap:10px;margin:6px 0 4px">'
+      + '<input type="range" class="ed-ov-opacity" min="0" max="100" step="1" value="100" style="flex:1">'
+      + '<span class="ed-ov-opacity-val" style="width:42px;text-align:right;font-size:12px;color:var(--text-secondary);font-variant-numeric:tabular-nums">100%</span>'
+      + '</div>';
     var modesBox = box.querySelector('.ed-ov-modes');
     var curMode = 'overlay';
+    var curOpacity = 1;
     BLEND_MODES.forEach(function (m) {
       var b = document.createElement('button');
       b.className = 'btn'; b.style.cssText = 'justify-content:center;font-size:12px;padding:5px 4px';
@@ -6317,22 +6661,42 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       });
       modesBox.appendChild(b);
     });
+    var opacitySlider = box.querySelector('.ed-ov-opacity');
+    var opacityVal = box.querySelector('.ed-ov-opacity-val');
+    opacitySlider.addEventListener('input', function () {
+      curOpacity = Math.min(100, Math.max(0, Number(opacitySlider.value) || 0)) / 100;
+      opacityVal.textContent = Math.round(curOpacity * 100) + '%';
+      postToIframe({ source: 'ed-host', type: 'SET_OVERLAY_OPACITY', payload: { opacity: curOpacity } });
+    });
     box.querySelector('.ed-ov-file').addEventListener('change', function (e) {
       var f = e.target.files && e.target.files[0];
       if (!f) return;
       var rd = new FileReader();
       rd.onload = function () {
-        postToIframe({ source: 'ed-host', type: 'SET_OVERLAY_IMAGE', payload: { src: String(rd.result), mode: curMode } });
+        postToIframe({ source: 'ed-host', type: 'SET_OVERLAY_IMAGE', payload: { src: String(rd.result), mode: curMode, opacity: curOpacity } });
       };
       rd.readAsDataURL(f);
     });
+    // 已有叠加图时回显当前混合模式与不透明度（OVERLAY_STATE 是异步回传的）
+    var stateTimer = setTimeout(function () {
+      if (overlayOrig && overlayOrig.has) {
+        curMode = overlayOrig.mode || 'overlay';
+        curOpacity = overlayOrig.opacity == null ? 1 : Math.min(1, Math.max(0, Number(overlayOrig.opacity)));
+        modesBox.querySelectorAll('.btn').forEach(function (x) {
+          x.classList.toggle('btn-primary', x.getAttribute('data-mode') === curMode);
+        });
+        opacitySlider.value = String(Math.round(curOpacity * 100));
+        opacityVal.textContent = Math.round(curOpacity * 100) + '%';
+      }
+    }, 120);
     var foot = document.createElement('div');
     foot.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;width:100%';
     var cancel = document.createElement('button');
     cancel.className = 'btn'; cancel.textContent = '取消并还原';
     cancel.addEventListener('click', function () {
+      clearTimeout(stateTimer);
       if (overlayOrig && overlayOrig.has) {
-        postToIframe({ source: 'ed-host', type: 'SET_OVERLAY_IMAGE', payload: { src: overlayOrig.src, mode: overlayOrig.mode } });
+        postToIframe({ source: 'ed-host', type: 'SET_OVERLAY_IMAGE', payload: { src: overlayOrig.src, mode: overlayOrig.mode, opacity: overlayOrig.opacity } });
       } else {
         postToIframe({ source: 'ed-host', type: 'REMOVE_OVERLAY' });
       }
@@ -6340,7 +6704,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
     var ok = document.createElement('button');
     ok.className = 'btn btn-primary'; ok.textContent = '完成';
-    ok.addEventListener('click', closeModal);
+    ok.addEventListener('click', function () { clearTimeout(stateTimer); closeModal(); });
     foot.appendChild(cancel); foot.appendChild(ok);
     openModal('头部加图 / 图层混合模式', box, { footer: foot });
   }
@@ -6390,6 +6754,546 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     right.insertBefore(out, right.firstChild);
     renderZoom();
   }
+
+  // ============ 画布标尺（顶部/左侧）+ 标尺拖出参考线 ============
+  var RULER_SIZE = 36; // 标尺厚度（px，左侧需容纳多位数字）
+  var RULER_CONFIG_KEY = 'html-editor:ruler-visible';
+  var rulerOn = true;
+  try { rulerOn = localStorage.getItem(RULER_CONFIG_KEY) !== '0'; } catch (e) {}
+  var rulerEls = null;       // { corner, h, v, hCanvas, vCanvas }
+  var rulerIframeWin = null; // 已挂监听/观察器的 iframe contentWindow
+  var rulerIframeEl = null;  // 已挂 load 监听与 ResizeObserver 的 iframe 元素
+  var rulerRO = null;
+  var rulerDrag = null;      // 进行中的参考线拖拽 { axis, mode, pointerId }
+  var guideProxyEl = null;
+
+  function rulerWrap() { return document.querySelector('.canvas-wrap'); }
+  function rulerIframe() {
+    return document.querySelector('iframe.editor-canvas') || document.querySelector('.editor-canvas');
+  }
+  function rulerActive() {
+    return !!(rulerOn && rulerEls && rulerIframe());
+  }
+
+  function ensureRuler() {
+    var wrap = rulerWrap();
+    if (!wrap) return;
+    if (!rulerEls || !rulerEls.corner.isConnected) {
+      var corner = document.createElement('div');
+      corner.className = 'ed-ruler-corner';
+      corner.textContent = 'px';
+      corner.title = '标尺（可在「标尺」按钮中关闭）';
+      var h = document.createElement('div'); h.className = 'ed-ruler ed-ruler-h';
+      var v = document.createElement('div'); v.className = 'ed-ruler ed-ruler-v';
+      var hCanvas = document.createElement('canvas');
+      var vCanvas = document.createElement('canvas');
+      h.appendChild(hCanvas); v.appendChild(vCanvas);
+      wrap.appendChild(corner); wrap.appendChild(h); wrap.appendChild(v);
+      // 从标尺按下：开始创建参考线（顶部标尺向下拖出水平线，左侧标尺向右拖出垂直线）
+      h.addEventListener('pointerdown', function (e) { beginRulerGuideDrag(e, 'y'); });
+      v.addEventListener('pointerdown', function (e) { beginRulerGuideDrag(e, 'x'); });
+      rulerEls = { corner: corner, h: h, v: v, hCanvas: hCanvas, vCanvas: vCanvas };
+    }
+    var show = rulerOn && !!rulerIframe();
+    rulerEls.corner.style.display = show ? '' : 'none';
+    rulerEls.h.style.display = show ? '' : 'none';
+    rulerEls.v.style.display = show ? '' : 'none';
+    if (show) {
+      bindRulerToIframe();
+      scheduleRulerDraw();
+    }
+  }
+
+  function bindRulerToIframe() {
+    var ifr = rulerIframe();
+    if (!ifr) return;
+    if (rulerIframeEl !== ifr) {
+      rulerIframeEl = ifr;
+      if (rulerRO) { rulerRO.disconnect(); rulerRO = null; }
+      if (window.ResizeObserver) {
+        rulerRO = new ResizeObserver(function () { scheduleRulerDraw(); });
+        rulerRO.observe(ifr);
+      }
+      ifr.addEventListener('load', function () { bindRulerToIframe(); });
+      rulerIframeWin = null; // 强制重绑文档级监听
+    }
+    var win = ifr.contentWindow;
+    if (win && rulerIframeWin !== win) {
+      rulerIframeWin = win;
+      try {
+        win.addEventListener('scroll', scheduleRulerDraw, { passive: true });
+        win.addEventListener('resize', scheduleRulerDraw, { passive: true });
+        if (win.ResizeObserver && win.document && win.document.documentElement) {
+          new win.ResizeObserver(scheduleRulerDraw).observe(win.document.documentElement);
+        }
+      } catch (e) {}
+    }
+  }
+
+  var rulerDrawQueued = false;
+  function scheduleRulerDraw() {
+    if (!rulerActive()) return;
+    if (rulerDrawQueued) return;
+    rulerDrawQueued = true;
+    requestAnimationFrame(function () {
+      rulerDrawQueued = false;
+      drawRulers();
+    });
+  }
+
+  /** 刻度间距：取 1/2/5×10^n，使主刻度在缩放后保持 50~120px 视觉间距 */
+  function rulerStep(unitPx) {
+    var pow = Math.pow(10, Math.floor(Math.log(unitPx) / Math.LN10));
+    var candidates = [pow, pow * 2, pow * 5, pow * 10];
+    for (var i = 0; i < candidates.length; i++) {
+      if (candidates[i] * (zoomLevelUi || 1) >= 50) return candidates[i];
+    }
+    return candidates[candidates.length - 1];
+  }
+
+  function drawRulers() {
+    if (!rulerActive()) return;
+    var ifr = rulerIframe();
+    var win = ifr && ifr.contentWindow;
+    var doc = win && win.document;
+    if (!ifr || !doc || !doc.documentElement) return;
+    var scale = zoomLevelUi || 1;
+    var dpr = Math.max(1, window.devicePixelRatio || 1);
+    var scrollX = win.scrollX || 0;
+    var scrollY = win.scrollY || 0;
+    var docW = Math.max(doc.documentElement.scrollWidth, doc.body ? doc.body.scrollWidth : 0, 1);
+    var docH = Math.max(doc.documentElement.scrollHeight, doc.body ? doc.body.scrollHeight : 0, 1);
+    var ifrW = ifr.clientWidth;
+    var ifrH = ifr.clientHeight;
+
+    // 顶/左标尺的位置尺寸与 iframe 对齐，同时让出 corner
+    var wrapRect = rulerWrap().getBoundingClientRect();
+    var ifrRect = ifr.getBoundingClientRect();
+    var offX = Math.round(ifrRect.left - wrapRect.left);
+    var offY = Math.round(ifrRect.top - wrapRect.top);
+    rulerEls.corner.style.left = offX + 'px';
+    rulerEls.corner.style.top = offY + 'px';
+    rulerEls.h.style.left = (offX + RULER_SIZE) + 'px';
+    rulerEls.h.style.top = offY + 'px';
+    rulerEls.h.style.width = Math.max(0, ifrW - RULER_SIZE) + 'px';
+    rulerEls.h.style.height = RULER_SIZE + 'px';
+    rulerEls.v.style.left = offX + 'px';
+    rulerEls.v.style.top = (offY + RULER_SIZE) + 'px';
+    rulerEls.v.style.width = RULER_SIZE + 'px';
+    rulerEls.v.style.height = Math.max(0, ifrH - RULER_SIZE) + 'px';
+
+    var step = rulerStep(100); // 主刻度（文档 px）
+    var minor = step / 5;
+
+    // ---- 横向标尺 ----
+    (function () {
+      var cssW = Math.max(1, ifrW - RULER_SIZE);
+      var cssH = RULER_SIZE;
+      var c = rulerEls.hCanvas;
+      c.style.width = cssW + 'px'; c.style.height = cssH + 'px';
+      c.width = Math.round(cssW * dpr); c.height = Math.round(cssH * dpr);
+      var x = c.getContext('2d');
+      x.setTransform(dpr, 0, 0, dpr, 0, 0);
+      x.clearRect(0, 0, cssW, cssH);
+      x.fillStyle = '#fff'; x.fillRect(0, 0, cssW, cssH);
+      x.strokeStyle = '#c9cdd4'; x.fillStyle = '#86909c';
+      x.font = '9px -apple-system, sans-serif'; x.textAlign = 'left'; x.textBaseline = 'top';
+      x.beginPath();
+      var startDoc = Math.floor(scrollX / scale / minor) * minor;
+      var endDoc = (scrollX + cssW) / scale + minor;
+      for (var p = startDoc; p <= endDoc; p += minor) {
+        if (p > docW + step) break;
+        var px = Math.round(p * scale - scrollX) + 0.5 - RULER_SIZE; // canvas 起点已让出 corner
+        if (px < -1 || px > cssW + 1) continue;
+        var isMajor = (Math.round(p / minor) % 5 === 0);
+        x.moveTo(px, isMajor ? cssH - 9 : cssH - 5);
+        x.lineTo(px, cssH);
+        if (isMajor && p >= 0) x.fillText(String(Math.round(p)), px + 2, 2);
+      }
+      x.stroke();
+    })();
+
+    // ---- 纵向标尺 ----
+    (function () {
+      var cssW = RULER_SIZE;
+      var cssH = Math.max(1, ifrH - RULER_SIZE);
+      var c = rulerEls.vCanvas;
+      c.style.width = cssW + 'px'; c.style.height = cssH + 'px';
+      c.width = Math.round(cssW * dpr); c.height = Math.round(cssH * dpr);
+      var x = c.getContext('2d');
+      x.setTransform(dpr, 0, 0, dpr, 0, 0);
+      x.clearRect(0, 0, cssW, cssH);
+      x.fillStyle = '#fff'; x.fillRect(0, 0, cssW, cssH);
+      x.strokeStyle = '#c9cdd4'; x.fillStyle = '#86909c';
+      x.font = '9px -apple-system, sans-serif'; x.textAlign = 'left'; x.textBaseline = 'middle';
+      x.beginPath();
+      var startDoc = Math.floor(scrollY / scale / minor) * minor;
+      var endDoc = (scrollY + cssH) / scale + minor;
+      for (var p = startDoc; p <= endDoc; p += minor) {
+        if (p > docH + step) break;
+        var py = Math.round(p * scale - scrollY) + 0.5 - RULER_SIZE;
+        if (py < -1 || py > cssH + 1) continue;
+        var isMajor = (Math.round(p / minor) % 5 === 0);
+        x.moveTo(isMajor ? cssW - 9 : cssW - 5, py);
+        x.lineTo(cssW, py);
+        // 主刻度数字横排在刻度左侧，右对齐，避免旋转后被 24px 宽度截断
+        if (isMajor && p >= 0) {
+          x.save();
+          x.textAlign = 'right';
+          x.textBaseline = 'middle';
+          x.fillText(String(Math.round(p)), cssW - 10, py);
+          x.restore();
+        }
+      }
+      x.stroke();
+    })();
+  }
+
+  // ---- 标尺拖出参考线 / 画布上拖动参考线 ----
+  // 手柄是跟随参考线的细条（垂直参考线一根竖条、水平参考线一根横条），
+  // 位置跟随参考线，平时 pointer-events:none 穿透，不干扰画布编辑。
+  // iframe 会把鼠标事件吞掉（宿主收不到 hover），所以激活由 iframe 上报的
+  // 指针位置（CANVAS_POINTER）驱动：指针靠近某条参考线 → 把对应细条激活接管 pointerdown。
+  var guideHandleEls = null;
+  var guideHandlesOn = false;
+  var HANDLE_T = 9; // 手柄厚度（屏幕 px，约等于参考线 5px 命中区 + 余量）
+  function ensureGuideHandles() {
+    var wrap = rulerWrap();
+    if (!wrap) return null;
+    if (!guideHandleEls || !guideHandleEls.x.isConnected || !guideHandleEls.y.isConnected) {
+      var hx = document.createElement('div');
+      hx.className = 'ed-guide-handle'; hx.setAttribute('data-axis', 'x');
+      var hy = document.createElement('div');
+      hy.className = 'ed-guide-handle'; hy.setAttribute('data-axis', 'y');
+      wrap.appendChild(hx); wrap.appendChild(hy);
+      hx.addEventListener('pointerdown', function (e) { beginHostGuideMove(e, 'x'); });
+      hy.addEventListener('pointerdown', function (e) { beginHostGuideMove(e, 'y'); });
+      hx.addEventListener('dblclick', function (e) { deleteGuideFromHandle(e, 'x'); });
+      hy.addEventListener('dblclick', function (e) { deleteGuideFromHandle(e, 'y'); });
+      guideHandleEls = { x: hx, y: hy };
+    }
+    return guideHandleEls;
+  }
+  /** 参考线文档坐标 → 宿主 wrap 内屏幕坐标 */
+  function guideScreenPos(axis, docVal, L) {
+    return axis === 'x'
+      ? L.frameOffX + docVal * L.scale - L.scrollX
+      : L.frameOffY + docVal * L.scale - L.scrollY;
+  }
+  function guideLayout() {
+    var ifr = rulerIframe();
+    var wrap = rulerWrap();
+    if (!ifr || !wrap) return null;
+    var win = ifr.contentWindow;
+    var wr = wrap.getBoundingClientRect();
+    var ir = ifr.getBoundingClientRect();
+    return {
+      wrapRect: wr, ifrRect: ir,
+      scale: zoomLevelUi || 1,
+      scrollX: win ? (win.scrollX || 0) : 0,
+      scrollY: win ? (win.scrollY || 0) : 0,
+      frameOffX: ir.left - wr.left,
+      frameOffY: ir.top - wr.top,
+    };
+  }
+  /** 把手柄细条摆到当前最近的参考线上；返回当前激活的轴（无则 null） */
+  function positionHandles(axis, docVal, L) {
+    var els = ensureGuideHandles();
+    if (!els) return;
+    var ir = L.ifrRect;
+    if (axis === 'x') {
+      var sx = guideScreenPos('x', docVal, L);
+      els.x.style.left = Math.round(L.frameOffX + 0) + 'px'; // 占位，实际用 transform 居中
+      els.x.style.top = Math.round(L.frameOffY) + 'px';
+      els.x.style.width = HANDLE_T + 'px';
+      els.x.style.height = Math.round(ir.height) + 'px';
+      els.x.style.transform = 'translateX(' + Math.round(sx - L.frameOffX - HANDLE_T / 2) + 'px)';
+    } else if (axis === 'y') {
+      var sy = guideScreenPos('y', docVal, L);
+      els.y.style.left = Math.round(L.frameOffX) + 'px';
+      els.y.style.top = Math.round(L.frameOffY) + 'px';
+      els.y.style.width = Math.round(ir.width) + 'px';
+      els.y.style.height = HANDLE_T + 'px';
+      els.y.style.transform = 'translateY(' + Math.round(sy - L.frameOffY - HANDLE_T / 2) + 'px)';
+    }
+  }
+  function setHandleActive(axis) {
+    var els = ensureGuideHandles();
+    if (!els) return;
+    els.x.style.pointerEvents = axis === 'x' ? 'auto' : 'none';
+    els.y.style.pointerEvents = axis === 'y' ? 'auto' : 'none';
+  }
+  /** 指针（iframe 视口坐标）靠近哪条参考线；命中返回 { axis, value }，否则 null */
+  function pickGuideAt(vx, vy, L) {
+    var threshold = (HANDLE_T / 2 + 1) / L.scale; // 文档坐标容差
+    var docX = (vx + L.scrollX) / L.scale;
+    var docY = (vy + L.scrollY) / L.scale;
+    var bestX = null, bestXd = Infinity;
+    (rulerLatestGuides.x || []).forEach(function (g) {
+      var d = Math.abs(g - docX);
+      if (d < bestXd) { bestXd = d; bestX = g; }
+    });
+    var bestY = null, bestYd = Infinity;
+    (rulerLatestGuides.y || []).forEach(function (g) {
+      var d = Math.abs(g - docY);
+      if (d < bestYd) { bestYd = d; bestY = g; }
+    });
+    var pickX = bestX != null && bestXd <= threshold;
+    var pickY = bestY != null && bestYd <= threshold;
+    if (pickX && pickY) return bestXd <= bestYd ? { axis: 'x', value: bestX } : { axis: 'y', value: bestY };
+    if (pickX) return { axis: 'x', value: bestX };
+    if (pickY) return { axis: 'y', value: bestY };
+    return null;
+  }
+  /** iframe 上报的指针位置 → 激活/摆放对应手柄 */
+  function onCanvasPointer(vx, vy) {
+    if (!guideHandlesOn || rulerDrag) return;
+    var L = guideLayout();
+    if (!L) return;
+    var hit = pickGuideAt(vx, vy, L);
+    if (!hit) { setHandleActive(null); return; }
+    positionHandles(hit.axis, hit.value, L);
+    setHandleActive(hit.axis);
+  }
+  function deleteGuideFromHandle(e, axis) {
+    e.preventDefault();
+    e.stopPropagation();
+    var L = guideLayout();
+    if (!L) return;
+    var vx = e.clientX - (L.wrapRect.left + L.frameOffX);
+    var vy = e.clientY - (L.wrapRect.top + L.frameOffY);
+    var hit = pickGuideAt(vx, vy, L);
+    if (!hit || hit.axis !== axis) return;
+    postToIframe({ type: 'DELETE_GUIDE', payload: { axis: axis, value: hit.value } });
+    setHandleActive(null);
+  }
+  /** 在手柄上按下：接管后续 move/up，驱动 iframe 端移动参考线 */
+  function beginHostGuideMove(e, axis) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var L = guideLayout();
+    if (!L) return;
+    var handle = axis === 'x' ? guideHandleEls.x : guideHandleEls.y;
+    var wr = L.wrapRect;
+    var vx = e.clientX - (wr.left + L.frameOffX);
+    var vy = e.clientY - (wr.top + L.frameOffY);
+    var hit = pickGuideAt(vx, vy, L);
+    if (!hit || hit.axis !== axis) { setHandleActive(null); return; }
+    var startValue = hit.value;
+    var list = axis === 'x' ? (rulerLatestGuides.x || []) : (rulerLatestGuides.y || []);
+    var idx = list.indexOf(startValue);
+    if (idx < 0) { setHandleActive(null); return; }
+    var latest = startValue;
+    var moved = false;
+    var outside = false;
+    rulerDrag = { axis: axis, mode: 'move', pointerId: e.pointerId };
+    try { handle.setPointerCapture(e.pointerId); } catch (err) {}
+    function toDoc(ev) {
+      var evx = ev.clientX - (wr.left + L.frameOffX);
+      var evy = ev.clientY - (wr.top + L.frameOffY);
+      return axis === 'x' ? (evx + L.scrollX) / L.scale : (evy + L.scrollY) / L.scale;
+    }
+    function isOutside(ev) {
+      var fx = ev.clientX - (wr.left + L.frameOffX);
+      var fy = ev.clientY - (wr.top + L.frameOffY);
+      if (fx < 0 || fy < 0 || fx > L.ifrRect.width || fy > L.ifrRect.height) return true;
+      if (rulerOn && ((axis === 'x' && fx <= RULER_SIZE) || (axis === 'y' && fy <= RULER_SIZE))) return true;
+      return false;
+    }
+    function mm(ev) {
+      if (ev.pointerId !== e.pointerId) return;
+      moved = true;
+      latest = Math.min(10000, Math.max(0, Math.round(toDoc(ev) * 100) / 100));
+      outside = isOutside(ev);
+      postGuideDrag(axis, 'move', latest, { mode: 'move', index: idx, outside: outside, startValue: startValue });
+    }
+    function cleanup() {
+      handle.removeEventListener('pointermove', mm);
+      handle.removeEventListener('pointerup', up);
+      handle.removeEventListener('pointercancel', cancel);
+      rulerDrag = null;
+      setHandleActive(null);
+    }
+    function up(ev) {
+      if (ev.pointerId !== e.pointerId) return;
+      // 松手位置是最终真值，避免快速拖到标尺/画布外后直接释放时沿用旧 move 状态。
+      latest = Math.min(10000, Math.max(0, Math.round(toDoc(ev) * 100) / 100));
+      outside = isOutside(ev);
+      moved = moved || latest !== startValue;
+      cleanup();
+      postGuideDrag(axis, 'end', latest, { mode: 'move', index: idx, outside: outside, moved: moved, startValue: startValue });
+      scheduleRulerDraw();
+    }
+    function cancel(ev) {
+      if (ev.pointerId !== e.pointerId) return;
+      cleanup();
+      postGuideDrag(axis, 'cancel', latest, { mode: 'move', index: idx, startValue: startValue });
+      scheduleRulerDraw();
+    }
+    handle.addEventListener('pointermove', mm);
+    handle.addEventListener('pointerup', up);
+    handle.addEventListener('pointercancel', cancel);
+  }
+
+  function ensureGuideProxy() {
+    var wrap = rulerWrap();
+    if (!wrap) return null;
+    if (guideProxyEl && guideProxyEl.isConnected) return guideProxyEl;
+    guideProxyEl = document.createElement('div');
+    guideProxyEl.className = 'ed-guide-drag-proxy';
+    wrap.appendChild(guideProxyEl);
+    return guideProxyEl;
+  }
+  function layoutGuideProxy() {
+    var proxy = ensureGuideProxy();
+    var ifr = rulerIframe();
+    if (!proxy || !ifr) return null;
+    var wrapRect = rulerWrap().getBoundingClientRect();
+    var r = ifr.getBoundingClientRect();
+    proxy.style.left = Math.round(r.left - wrapRect.left) + 'px';
+    proxy.style.top = Math.round(r.top - wrapRect.top) + 'px';
+    proxy.style.width = Math.round(r.width) + 'px';
+    proxy.style.height = Math.round(r.height) + 'px';
+    return proxy;
+  }
+  /** 统一用文档坐标（CSS px）与 iframe 通讯，避免拖拽中滚动造成偏差 */
+  function postGuideDrag(axis, phase, docPos, extra) {
+    var payload = { axis: axis, phase: phase, doc: Math.round(docPos * 100) / 100 };
+    if (extra) for (var k in extra) payload[k] = extra[k];
+    postToIframe({ source: 'ed-host', type: 'GUIDE_DRAG_MOVE', payload: payload });
+  }
+  function proxyEventToDoc(proxy, e, axis) {
+    var ifr = rulerIframe();
+    var win = ifr && ifr.contentWindow;
+    var scale = zoomLevelUi || 1;
+    var r = proxy.getBoundingClientRect();
+    if (axis === 'x') return ((e.clientX - r.left) + (win ? (win.scrollX || 0) : 0)) / scale;
+    return ((e.clientY - r.top) + (win ? (win.scrollY || 0) : 0)) / scale;
+  }
+  function activateProxy(proxy, axis, pointerId) {
+    proxy.classList.add('ed-active');
+    proxy.setAttribute('data-axis', axis);
+    try { proxy.setPointerCapture(pointerId); } catch (err) {}
+  }
+  function deactivateProxy(proxy) {
+    proxy.classList.remove('ed-active');
+  }
+
+  /** 从标尺按下拖入：axis 'x' = 垂直参考线（从左侧标尺拖入）；'y' = 水平参考线（从顶部标尺拖入） */
+  function beginRulerGuideDrag(e, axis) {
+    if (!rulerActive()) return;
+    e.preventDefault();
+    var proxy = layoutGuideProxy();
+    if (!proxy) return;
+    rulerDrag = { axis: axis, mode: 'create', pointerId: e.pointerId };
+    postGuideDrag(axis, 'start', proxyEventToDoc(proxy, e, axis), { mode: 'create' });
+    activateProxy(proxy, axis, e.pointerId);
+    var move = function (ev) {
+      if (!rulerDrag || ev.pointerId !== rulerDrag.pointerId) return;
+      postGuideDrag(axis, 'move', proxyEventToDoc(proxy, ev, axis));
+    };
+    var up = function (ev) {
+      if (!rulerDrag || ev.pointerId !== rulerDrag.pointerId) return;
+      proxy.removeEventListener('pointermove', move);
+      proxy.removeEventListener('pointerup', up);
+      proxy.removeEventListener('pointercancel', up);
+      deactivateProxy(proxy);
+      postGuideDrag(axis, 'end', proxyEventToDoc(proxy, ev, axis));
+      rulerDrag = null;
+      scheduleRulerDraw();
+    };
+    proxy.addEventListener('pointermove', move);
+    proxy.addEventListener('pointerup', up);
+    proxy.addEventListener('pointercancel', up);
+  }
+
+  // 参考线最新状态缓存（来自 iframe 的 GUIDES_CHANGED / GUIDE_DRAG_STATE 推送）
+  var rulerLatestGuides = { x: [], y: [] };
+  function refreshGuideHandles() {
+    var has = (rulerLatestGuides.x.length + rulerLatestGuides.y.length) > 0;
+    guideHandlesOn = has && rulerActive();
+    if (!guideHandlesOn) setHandleActive(null);
+    ensureGuideHandles();
+  }
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (!d || d.source !== 'ed-editor') return;
+    if (d.type === 'GUIDES_CHANGED' && d.payload) {
+      rulerLatestGuides = {
+        x: (d.payload.vertical || []).slice(),
+        y: (d.payload.horizontal || []).slice(),
+      };
+      verticalGuidesUi = rulerLatestGuides.x.slice();
+      horizontalGuidesUi = rulerLatestGuides.y.slice();
+      guidesOn = true;
+      saveGuideConfig();
+      syncGuideConfig();
+      scheduleRulerDraw();
+      refreshGuideHandles();
+    } else if (d.type === 'GUIDE_DRAG_STATE' && d.payload) {
+      rulerLatestGuides = { x: (d.payload.x || []).slice(), y: (d.payload.y || []).slice() };
+    } else if (d.type === 'CANVAS_POINTER' && d.payload) {
+      onCanvasPointer(d.payload.x, d.payload.y);
+    }
+  });
+  // 同步宿主编发的 SET_GUIDES（弹窗管理 / 加载草稿 / 程序设置），让"已加载"的参考线也能 hover 拖拽。
+  // 只更新缓存与手柄，不再转发（postToIframe 走 contentWindow，不会再触发本监听，无循环）。
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (!d || d.source !== 'ed-host' || d.type !== 'SET_GUIDES' || !d.payload) return;
+    rulerLatestGuides = {
+      x: (d.payload.vertical || []).slice(),
+      y: (d.payload.horizontal || []).slice(),
+    };
+    refreshGuideHandles();
+  });
+
+  function ensureRulerBtn() {
+    var right = ensureToolbarRight(); if (!right) return;
+    if (document.getElementById('ed-ruler-btn')) return;
+    var b = document.createElement('button');
+    b.id = 'ed-ruler-btn'; b.type = 'button'; b.className = 'btn';
+    b.textContent = '标尺';
+    b.title = '显示/隐藏画布顶部与左侧标尺；从顶部标尺向下拖出水平参考线，从左侧标尺向右拖出垂直参考线；拖动参考线可调整位置，拖回标尺或拖出画布删除';
+    b.addEventListener('click', function () {
+      rulerOn = !rulerOn;
+      try { localStorage.setItem(RULER_CONFIG_KEY, rulerOn ? '1' : '0'); } catch (e) {}
+      b.classList.toggle('btn-primary', rulerOn);
+      postToIframe({ source: 'ed-host', type: 'SET_RULER_VISIBLE', payload: { visible: rulerOn } });
+      ensureRuler();
+    });
+    right.insertBefore(b, right.firstChild);
+    b.classList.toggle('btn-primary', rulerOn);
+  }
+
+  // 参考线在 iframe 内拖动时，鼠标可能在 iframe 外松开（iframe 收不到 mouseup）。
+  // 宿主全局 mouseup 兜底：结合松手点位置判断是"移动"还是"删除"，转发给 iframe 收尾。
+  window.addEventListener('mouseup', function (e) {
+    var ifr = rulerIframe();
+    if (!ifr) return;
+    var r = ifr.getBoundingClientRect();
+    var inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+    var outside = !inside
+      || (rulerOn && (e.clientX - r.left <= RULER_SIZE || e.clientY - r.top <= RULER_SIZE));
+    postToIframe({
+      source: 'ed-host', type: 'GUIDE_DRAG_CANCEL',
+      payload: { inside: inside, outside: outside },
+    });
+  }, true);
+
+  // 画布滚动/缩放/加载完成后重绘标尺
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (!d || d.source !== 'ed-editor') return;
+    if (d.type === 'ZOOM' || d.type === 'READY' || d.type === 'CHANGED') {
+      if (d.type === 'READY') rulerIframeWin = null; // 文档变了，重绑监听
+      ensureRuler();
+      refreshGuideHandles();
+    }
+  });
+  window.addEventListener('resize', function () { scheduleRulerDraw(); });
+
   // ============ 顶部工具栏用途归组 ============
   function toolbarButtonText(node) {
     return node && node.textContent ? node.textContent.replace(/\s+/g, ' ').trim() : '';
@@ -6463,7 +7367,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     });
     moveById('history', ['ed-history-btn']);
 
-    moveById('view', ['ed-zoom-out', 'ed-zoom-label', 'ed-zoom-in', 'ed-grid-btn', 'ed-guide-btn', 'ed-layer-btn']);
+    moveById('view', ['ed-zoom-out', 'ed-zoom-label', 'ed-zoom-in', 'ed-ruler-btn', 'ed-grid-btn', 'ed-guide-btn', 'ed-layer-btn']);
     moveById('content', ['ed-library-btn', 'ed-batch-btn', 'ed-overlay-btn', 'ed-blur-btn']);
     moveButtons('danger', function (button) {
       return button.getAttribute('title') === '清空画布' || toolbarButtonText(button) === '清空';
@@ -6474,7 +7378,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     var d = e.data;
     if (!d || d.source !== 'ed-editor') return;
     if (d.type === 'ZOOM') { zoomLevelUi = d.payload.level; renderZoom(); }
-    else if (d.type === 'READY') { zoomLevelUi = 1; renderZoom(); }
+    else if (d.type === 'READY') {
+      zoomLevelUi = 1; renderZoom();
+      postToIframe({ source: 'ed-host', type: 'SET_RULER_VISIBLE', payload: { visible: rulerOn } });
+    }
   });
 
   // ============ 监听 BATCH_RESULT ============
@@ -6506,6 +7413,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     ensureContainerAlignPanel();
     ensureZoomCtrl();
     ensureOverlayBtn();
+    ensureRulerBtn();
+    ensureRuler();
     ensureToolbarGroups();
   }
   // 持续保证按钮存在（工具栏是 React 动态渲染的）
