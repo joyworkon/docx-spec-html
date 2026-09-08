@@ -11,6 +11,8 @@ from typing import Any
 
 from docx import Document
 
+from pdf_source import is_pdf, pdf_image_count, pdf_table_count, pdf_texts
+
 
 def clean_text(value: str) -> str:
     value = re.sub(r"[\u200b-\u200f\ufeff]", "", value or "")
@@ -71,6 +73,24 @@ def docx_image_count(docx_path: Path) -> int:
 
 def docx_table_count(docx_path: Path) -> int:
     return len(Document(docx_path).tables)
+
+
+def source_texts(source_path: Path) -> list[str]:
+    if is_pdf(source_path):
+        return pdf_texts(source_path)
+    return docx_texts(source_path)
+
+
+def source_image_count(source_path: Path) -> int:
+    if is_pdf(source_path):
+        return pdf_image_count(source_path)
+    return docx_image_count(source_path)
+
+
+def source_table_count(source_path: Path) -> int:
+    if is_pdf(source_path):
+        return pdf_table_count(source_path)
+    return docx_table_count(source_path)
 
 
 def html_visible_text(html_text: str) -> str:
@@ -156,7 +176,7 @@ def structural_checks(
     caption_card_count = count_class(html_text, "caption-image-card")
     image_holder_count = count_class(html_text, "image-holder")
     # The hero-overlay background is an intentional replaceable layer injected by
-    # the generator; it is NOT a DOCX content image and must never be wrapped in an
+    # the generator; it is NOT a source content image and must never be wrapped in an
     # image-holder. Allow that single exception so a fully-correct page still passes.
     hero_overlay_count = len(re.findall(r"\bhero-overlay\b", html_text, flags=re.I))
     image_frame_count = count_class(html_text, "image-frame")
@@ -277,7 +297,7 @@ def structural_checks(
         "section_heads_include_spec_head_and_label": "Every section-head, including overview cards, must use spec-head and include the right INTRODUCTION label.",
         "label_lines_wrap_label_text": "Every label-line must contain label-text (colon title, pink bar) or label-plain (colon-less, no bar).",
         "white_text_blocks_used_for_label_groups": "Grey-panel label groups must be wrapped in white text-block modules instead of bare labels/lists.",
-        "image_cards_use_image_holders": "Every DOCX image should be placed inside an image-holder so it keeps proportion and spacing.",
+        "image_cards_use_image_holders": "Every source image should be placed inside an image-holder so it keeps proportion and spacing.",
         "caption_images_keep_text_below_images": "Formula or caption text after an image must use caption-image-card, with image above and caption below.",
         "many_screen_examples_use_detail_grid": "Five or more screen/detail examples must use detail-screen-grid instead of a vertical list or cramped grid.",
         "detail_grid_not_four_column_screens_grid": "Screen/detail examples must not use the four-column screens-grid pattern; use the two-column detail-screen-grid.",
@@ -297,16 +317,16 @@ def structural_checks(
     return checks, warnings
 
 
-def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
+def validate(source_path: Path, html_path: Path) -> dict[str, Any]:
     html_text = html_path.read_text(encoding="utf-8")
     visible = html_visible_text(html_text)
-    source_texts = docx_texts(docx_path)
+    texts = source_texts(source_path)
     title_directives = [
         text
-        for text in source_texts
+        for text in texts
         if re.match(r"^\s*(?:主标题|标题|文档标题|page\s*title)\s*[:：]", text, flags=re.I)
     ]
-    expected_counts = Counter(source_texts)
+    expected_counts = Counter(texts)
     actual_counts = Counter()
     missing: list[str] = []
     underrepresented: list[dict[str, Any]] = []
@@ -372,17 +392,17 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
         elif actual < expected:
             underrepresented.append({"text": text, "expected": expected, "actual": actual})
 
-    expected_images = docx_image_count(docx_path)
-    expected_metrics = sum(is_source_metric_line(text) for text in source_texts)
+    expected_images = source_image_count(source_path)
+    expected_metrics = sum(is_source_metric_line(text) for text in texts)
     all_images = len(re.findall(r"<img\b", html_text, flags=re.I))
-    # Synthetic Hero overlays are UI/runtime assets, not DOCX content images.
+    # Synthetic Hero overlays are UI/runtime assets, not source content images.
     synthetic_images = count_class(html_text, "hero-overlay")
     actual_images = max(0, all_images - synthetic_images)
     # A 模块化布局图 schematic is intentionally redrawn as a .module-layout block
     # instead of embedding the raw image, so each redraw stands in for one image.
     redrawn_images = len(re.findall(r'class="[^"]*module-layout', html_text))
     effective_images = actual_images + redrawn_images
-    expected_tables = docx_table_count(docx_path)
+    expected_tables = source_table_count(source_path)
     # Count real tables once, then add only non-table semantic components.  A
     # canonical table may also carry ``spec-table``/``word-table-spec`` classes;
     # counting the class independently would overstate preservation.
@@ -426,21 +446,21 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
 
     warnings: list[str] = []
     if missing:
-        warnings.append("Some DOCX text fragments are missing from visible HTML text.")
+        warnings.append("Some source text fragments are missing from visible HTML text.")
     if underrepresented:
-        warnings.append("Some repeated DOCX text fragments appear fewer times in HTML.")
+        warnings.append("Some repeated source text fragments appear fewer times in HTML.")
     if effective_images != expected_images:
-        warnings.append("HTML content image count plus semantic redraws must exactly match DOCX image occurrences.")
+        warnings.append("HTML content image count plus semantic redraws must exactly match source image occurrences.")
     if expected_tables and actual_table_like < expected_tables:
-        warnings.append("DOCX contains tables; HTML may not preserve all table-like structures.")
+        warnings.append("The source contains tables; HTML may not preserve all table-like structures.")
     if not all(css_checks.values()):
         warnings.append("One or more required CSS or layout invariants are missing.")
     warnings.extend(structure_warnings)
 
     return {
-        "source": str(docx_path),
+        "source": str(source_path),
         "html": str(html_path),
-        "source_text_count": len(source_texts),
+        "source_text_count": len(texts),
         "unique_source_text_count": len(expected_counts),
         "missing_text_count": len(missing),
         "missing_texts": missing[:50],
@@ -462,14 +482,14 @@ def validate(docx_path: Path, html_path: Path) -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate DOCX-to-HTML output.")
-    parser.add_argument("docx", type=Path)
+    parser = argparse.ArgumentParser(description="Validate DOCX/PDF-to-HTML output.")
+    parser.add_argument("source", type=Path, help="source document (.docx or .pdf)")
     parser.add_argument("html", type=Path)
     parser.add_argument("--report", type=Path)
     parser.add_argument("--strict", action="store_true", help="Exit non-zero when validation warnings exist.")
     args = parser.parse_args()
 
-    report = validate(args.docx, args.html)
+    report = validate(args.source, args.html)
     text = json.dumps(report, ensure_ascii=False, indent=2)
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)

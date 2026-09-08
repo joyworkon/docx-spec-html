@@ -13,8 +13,8 @@ from pathlib import Path
 from review_gate import review
 
 
-def finalize(docx: Path, candidate: Path, output: Path, report_path: Path, profile: str) -> dict:
-    result = review(docx, candidate, profile)
+def finalize(source: Path, candidate: Path, output: Path, report_path: Path, profile: str) -> dict:
+    result = review(source, candidate, profile)
     if not result["passed"]:
         result["finalized"] = False
         report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -28,7 +28,7 @@ def finalize(docx: Path, candidate: Path, output: Path, report_path: Path, profi
             temporary = Path(handle.name)
         try:
             shutil.copyfile(candidate, temporary)
-            staged_result = review(docx, temporary, profile)
+            staged_result = review(source, temporary, profile)
             if not staged_result["passed"]:
                 staged_result["finalized"] = False
                 staged_result["candidate"] = str(candidate)
@@ -53,14 +53,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Validate, DOM-contract-check, hash-bind, and publish one final HTML file."
     )
-    parser.add_argument("docx", type=Path)
+    parser.add_argument("source", type=Path, help="source document (.docx or .pdf)")
     parser.add_argument("candidate", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--profile", choices=["auto", "body-care", "generic"], default="auto")
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
     report_path = args.report or args.output.with_name(args.output.stem + "-review-report.json")
-    result = finalize(args.docx, args.candidate, args.output, report_path, args.profile)
+    result = finalize(args.source, args.candidate, args.output, report_path, args.profile)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result.get("finalized") else 1
 

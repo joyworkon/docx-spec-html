@@ -1925,6 +1925,13 @@ def render_html(docx_path: Path, style_path: Path, font_path: Path | None, updat
 
 def docx_inputs(input_path: Path) -> list[Path]:
     if input_path.is_file():
+        if input_path.suffix.lower() == ".pdf":
+            raise SystemExit(
+                "batch_generate.py only drafts from DOCX. For a PDF-only source, run "
+                "scripts/extract_pdf_manifest.py and rebuild the page model-led against the "
+                "PDF; validate_output.py, review_gate.py, and finalize_output.py all accept "
+                "the PDF as source."
+            )
         return [input_path]
     return sorted(path for path in input_path.rglob("*.docx") if not path.name.startswith("~$"))
 

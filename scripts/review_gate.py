@@ -107,9 +107,9 @@ def body_care_checks(html: str, report: dict) -> dict[str, bool]:
     }
 
 
-def review(docx: Path, html_path: Path, profile: str | None = "auto") -> dict:
+def review(source: Path, html_path: Path, profile: str | None = "auto") -> dict:
     html = html_path.read_text(encoding="utf-8")
-    source_report = validate(docx, html_path)
+    source_report = validate(source, html_path)
     requested_profile = profile or "auto"
     dom_profile = None if requested_profile == "generic" else requested_profile
     dom_checks, body_care_profile = evaluate_dom_contracts(html, dom_profile)
@@ -172,16 +172,23 @@ def review(docx: Path, html_path: Path, profile: str | None = "auto") -> dict:
         ),
         "inline_svg_contract": "<svg" in html and "class=\"metric-arrow\"" in html,
     }
-    profile_checks = body_care_checks(html, source_report) if effective_profile == "body-care" else {}
+    # The body-care profile checks hardcode golden counts of one specific DOCX
+    # (50 image occurrences, 11 tables, …). A PDF source counts differently
+    # (placements, border-detected tables), so run them only for DOCX sources.
+    profile_checks = (
+        body_care_checks(html, source_report)
+        if effective_profile == "body-care" and source.suffix.lower() == ".docx"
+        else {}
+    )
     checks = {**generic_checks, **dom_checks, **profile_checks}
     warnings = [name for name, passed in checks.items() if not passed]
     return {
         "release": SKILL_RELEASE,
-        "source": str(docx),
+        "source": str(source),
         "html": str(html_path),
         "requested_profile": requested_profile,
         "profile": effective_profile or "generic",
-        "source_sha256": hashlib.sha256(docx.read_bytes()).hexdigest(),
+        "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
         "html_sha256": hashlib.sha256(html_path.read_bytes()).hexdigest(),
         "checks": checks,
         "source_validation": {
@@ -209,12 +216,12 @@ def review(docx: Path, html_path: Path, profile: str | None = "auto") -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run deterministic post-generation review gates.")
-    parser.add_argument("docx", type=Path)
+    parser.add_argument("source", type=Path, help="source document (.docx or .pdf)")
     parser.add_argument("html", type=Path)
     parser.add_argument("--profile", choices=["auto", "body-care", "generic"], default="auto")
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()
-    result = review(args.docx, args.html, args.profile)
+    result = review(args.source, args.html, args.profile)
     rendered = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)

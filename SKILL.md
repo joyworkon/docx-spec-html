@@ -1,15 +1,16 @@
 ---
 name: docx-spec-html
-description: Generate, batch-generate, validate, or refine production-quality single-file HTML specification pages from Word .docx documents, using the companion PDF as the authoritative hierarchy and table source. Use for JD-style 商品信息运营规范 documents, DOCX-to-HTML reconstruction, golden-quality matching, and editable or locked review deliverables.
+description: Generate, batch-generate, validate, or refine production-quality single-file HTML specification pages from Word .docx documents — or directly from PDF when no DOCX exists — using the PDF as the authoritative hierarchy and table source. Use for JD-style 商品信息运营规范 documents, DOCX/PDF-to-HTML reconstruction, golden-quality matching, and editable or locked review deliverables.
 ---
 
 # DOCX Spec HTML
 
-Convert Word specification documents into polished 1280px single-file HTML pages while preserving text, images, tables, order, and hierarchy.
+Convert Word specification documents (or PDF-only sources) into polished 1280px single-file HTML pages while preserving text, images, tables, order, and hierarchy.
 
 ## Core contract
 
 - Treat the companion PDF as the structural source of truth for content hierarchy, module boundaries, merged cells, and row/column relationships only. Never copy the PDF's colours, borders, corner treatment, spacing, or image-card styling; those always come from this Skill's HTML design system and golden reference.
+- When no DOCX exists, the PDF alone is a valid source: it becomes the single source of truth for both structure and content. Extract text, images, and tables with `scripts/extract_pdf_manifest.py`, reconstruct model-led from the manifest plus page renders, and pass the PDF itself as the source argument to `validate_output.py`, `review_gate.py`, and `finalize_output.py`. `batch_generate.py` stays DOCX-only — never deliver raw generator output as production work anyway.
 - Never deliver raw `batch_generate.py` output as production work. It is extraction scaffolding only.
 - Use the companion PDF's numbered first-level modules in their exact source order and count. Cross-check numbered headings against overview labels such as `【系列品】` so industry-specific 9+ module documents remain complete without promoting numbered body rules. The body-care profile still requires its established eight-module sequence: `主图规范` / `主图视频` / `长标题` / `短标题` / `通用卖点` / `主推标签` / `品质标签` / `属性`.
 - Strip the source `N、` prefix from module titles because the card already carries `01`–`08`. Never promote numbered body items or unnumbered phrases into extra chapters.
@@ -24,12 +25,13 @@ Convert Word specification documents into polished 1280px single-file HTML pages
 - Use `assets/styles.css` as the single canonical stylesheet. Do not copy CSS into Markdown references.
 - Compare visual treatment with `assets/examples/auto-oil-golden-reference.html` and its three compressed WebP snapshots.
 - Use `scripts/extract_docx_manifest.py` for OfficeCLI-backed structural extraction and `scripts/batch_generate.py` for draft generation. The manifest extractor preserves outline, list, run-format, image-anchor, and merged-cell metadata in a stable JSON schema. OfficeCLI ships with the skill: the extractor first tries the system `officecli`, then falls back to the bundled binary under `assets/vendor/officecli/` (macOS arm64 included; other platforms are downloaded from the official release on first use and verified against the bundled `SHA256SUMS`). Use `scripts/dom_contracts.py` and `scripts/review_gate.py` for component/DOM validation. Publish production work only through `scripts/finalize_output.py`.
+- For a PDF-only source, use `scripts/extract_pdf_manifest.py` (PyMuPDF-backed) instead of the DOCX extractor. It emits reading-order text lines with font size/weight for hierarchy decisions, dumps every image placement to files, detects bordered tables, and optionally renders full pages (`--render-pages`) for visual cross-checking. Its table count covers bordered tables only — resolve borderless grids against the page renders with model judgment. `validate_output.py`, `review_gate.py`, and `finalize_output.py` all accept either a `.docx` or a `.pdf` as the source argument; the body-care profile's hardcoded golden counts run only for DOCX sources.
 - Use `scripts/rebind_embedded_editor.py` when a new `assets/vendor/html-editor.html` must also replace the editor embedded in an existing final page. It updates only the editor payload, its SHA-256 marker, and the generator release—never the document content or layout.
 
 ## Required workflow
 
-1. Obtain and read the companion PDF.
-2. Verify OfficeCLI, then extract the DOCX manifest:
+1. Obtain and read the PDF (the companion PDF when a DOCX exists, otherwise the PDF-only source).
+2. With a DOCX: verify OfficeCLI, then extract the DOCX manifest:
 
    ```bash
    officecli --version
@@ -40,7 +42,15 @@ Convert Word specification documents into polished 1280px single-file HTML pages
 
    Treat this manifest as the primary DOCX structure view. Read `outline_level`, `list_level`, run-level formatting, image paths/dimensions, and table `rowspan`/`colspan` values before making hierarchy decisions. The PDF still wins when exported DOCX structure and visible PDF structure disagree. Do not use `officecli view html` as the final page design.
 
-3. Generate a baseline draft:
+   PDF-only: extract the PDF manifest instead (requires PyMuPDF, `pip install pymupdf`):
+
+   ```bash
+   python3 scripts/extract_pdf_manifest.py source.pdf --out source-manifest.json --render-pages
+   ```
+
+   Treat this manifest plus the rendered pages as the primary structure view. Use `font_size`/`is_bold`/`heading_level` for hierarchy decisions, the dumped image files for content images, and the detected tables as a lower bound — confirm merged cells and borderless grids against the page renders.
+
+3. With a DOCX, generate a baseline draft:
 
    ```bash
    python3 scripts/batch_generate.py source.docx output-dir
@@ -48,9 +58,11 @@ Convert Word specification documents into polished 1280px single-file HTML pages
 
    Use `--style path.css` for custom CSS. Legacy `--design path.md` remains compatible. The standard page already embeds the full visual editor behind the fixed `编辑` button; add `--editable` only when an explicitly requested extra inline-contenteditable toolbar is required.
 
+   PDF-only: skip this step and build the page model-led from the manifest, the extracted images, and `assets/styles.css`.
+
 4. Reconstruct hierarchy against the PDF. Resolve module boundaries, captions, merged cells, alternating headers, and image groupings with model judgment. Choose existing semantic components; never hand-author alternate wrappers or class combinations for them.
 5. Review the HTML screen-by-screen against the PDF and golden reference. Fix every mismatch.
-6. During iteration, validate the candidate page:
+6. During iteration, validate the candidate page (the source argument is the `.docx`, or the `.pdf` for a PDF-only source):
 
    ```bash
    python3 scripts/validate_output.py source.docx final-output.html --strict
@@ -71,7 +83,7 @@ Convert Word specification documents into polished 1280px single-file HTML pages
 
 Never deliver a candidate file or copy/rename it into place without this finalization step.
 
-`batch_generate.py` may continue using `python-docx` internally to read image bytes and produce extraction scaffolding. Do not treat that draft parser as the hierarchy authority; use the OfficeCLI manifest plus PDF for model-led reconstruction.
+`batch_generate.py` may continue using `python-docx` internally to read image bytes and produce extraction scaffolding. Do not treat that draft parser as the hierarchy authority; use the OfficeCLI manifest plus PDF (or the PDF manifest alone for PDF-only sources) for model-led reconstruction.
 
 ## Non-negotiable output rules
 
@@ -116,6 +128,6 @@ Never deliver a candidate file or copy/rename it into place without this finaliz
 
 ## Editable review mode
 
-Editable mode changes only the downloaded HTML, never the source DOCX. Re-run validation after reviewer edits whenever source fidelity still matters.
+Editable mode changes only the downloaded HTML, never the source document. Re-run validation after reviewer edits whenever source fidelity still matters.
 
 When feedback reveals a reusable rule, update the relevant reference and script. Keep document-specific exceptions in the generated output rather than the shared skill.
