@@ -968,6 +968,19 @@ body { background: #737373; }
 }
 .poster.auto-doc .doc-table td.table-media-cell { padding: var(--table-media-padding); }
 .poster.auto-doc .row-head { font-weight: var(--table-header-weight); }
+/* Several images sharing one source cell render side by side (the source
+   document lays them out in a row), each keeping its own proportion. */
+.poster.auto-doc .cell-media-row {
+  display: flex;
+  gap: var(--table-cell-gap);
+  align-items: flex-start;
+  width: 100%;
+}
+.poster.auto-doc .cell-media-row .image-holder {
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
+}
 .poster.auto-doc .doc-table td .image-holder {
   display: flex;
   align-items: center;
@@ -1471,6 +1484,13 @@ body { background: #737373; }
   text-align: center;
   text-align-last: center;
 }
+/* Text rows of a before/after compare are table body cells too: same light-grey
+   fill, corner radius and inset as the rounded-table body system. */
+.poster.auto-doc .ba-col .ba-text {
+  background: var(--table-body-bg);
+  border-radius: var(--table-cell-radius);
+  padding: 18px 24px;
+}
 
 /* Three-column spec table: 主图 narrowest, 内容要求 ~2x, 示例 half width */
 .poster.auto-doc .spec-table:not(table) {
@@ -1745,7 +1765,8 @@ body.editing [contenteditable="true"] {
 }
 .poster.auto-doc .label-rest.justify-txt,
 .poster.auto-doc td.justify-txt,
-.poster.auto-doc th.justify-txt {
+.poster.auto-doc th.justify-txt,
+.poster.auto-doc .ba-text.justify-txt {
   text-align: justify;
   text-align-last: left;
 }

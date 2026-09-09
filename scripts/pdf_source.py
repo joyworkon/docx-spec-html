@@ -80,12 +80,63 @@ def pdf_texts(pdf_path: Path) -> list[str]:
     return texts
 
 
+def pattern_tile_signatures(doc: Any, page: Any) -> set[tuple[int, int]]:
+    """Pixel sizes of images that the page uses as tiling-pattern tiles.
+
+    A PDF tiling pattern paints one small image repeatedly as a page
+    background. PyMuPDF reports every repetition through ``get_image_info()``
+    with ``xref == 0``, so a decorative tile can otherwise look like hundreds
+    of content images. Resolve the page's ``/Pattern`` resources to learn which
+    tile images are decoration; any failure returns an empty set so extraction
+    stays usable.
+    """
+    signatures: set[tuple[int, int]] = set()
+    try:
+        kind, value = doc.xref_get_key(page.xref, "Resources/Pattern")
+        if kind not in {"dict", "array"} or not value:
+            return signatures
+        for pattern_xref in {int(v) for v in re.findall(r"(\d+)\s+0\s+R", value)}:
+            _, xobjects = doc.xref_get_key(pattern_xref, "Resources/XObject")
+            if not xobjects:
+                continue
+            for xobject_xref in {int(v) for v in re.findall(r"(\d+)\s+0\s+R", xobjects)}:
+                _, width = doc.xref_get_key(xobject_xref, "Width")
+                _, height = doc.xref_get_key(xobject_xref, "Height")
+                try:
+                    signatures.add((int(width), int(height)))
+                except (TypeError, ValueError):
+                    continue
+    except Exception:  # noqa: BLE001 - decoration detection must never break extraction
+        return signatures
+    return signatures
+
+
+def content_image_infos(doc: Any, page: Any) -> list[dict[str, Any]]:
+    """Image placements that are real document content.
+
+    Excludes repetitions of a tiling pattern: those are page decoration (often a
+    fully transparent tile), not images the document shows.
+    """
+    infos = page.get_image_info(xrefs=True)
+    tiles = pattern_tile_signatures(doc, page)
+    if not tiles:
+        return infos
+    return [
+        info
+        for info in infos
+        if not (
+            int(info.get("xref", 0)) == 0
+            and (info.get("width"), info.get("height")) in tiles
+        )
+    ]
+
+
 def pdf_image_count(pdf_path: Path) -> int:
-    """Count image placements (occurrences), mirroring DOCX ``a:blip`` counting."""
+    """Count content image placements (occurrences), mirroring DOCX ``a:blip``."""
     count = 0
     with open_pdf(pdf_path) as doc:
         for page in doc:
-            count += len(page.get_image_info())
+            count += len(content_image_infos(doc, page))
     return count
 
 

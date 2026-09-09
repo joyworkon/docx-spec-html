@@ -115,7 +115,45 @@ def normalize_for_match(value: str) -> str:
     # A 「（…+X%）」title metric is split into the h2 + a separate green bar, and
     # other （…）asides may move; ignore parentheses when matching.
     value = re.sub(r"[（）()]", "", value)
+    # List-bullet glyphs are list formatting, not document copy. PDF extraction
+    # surfaces Word/PPT bullets (•/◦) as their own text lines, while the
+    # generator renders the canonical component marker (grey/red square) instead.
+    value = LIST_MARKER_RE.sub("", value)
     return re.sub(r"[：:\s]", "", value)
+
+
+# Bullet glyphs that PDF extraction reports as standalone text but that the
+# canonical components render as their own list markers.
+LIST_MARKER_RE = re.compile(r"[•◦▪●○➢▶]")
+# A long link wrapped across PDF lines: only the first piece keeps ``http://``.
+URL_FRAGMENT_RE = re.compile(r"^[A-Za-z0-9:/?=&%._~+\-]+$")
+
+
+def is_list_marker_only(text: str) -> bool:
+    return bool(text) and not LIST_MARKER_RE.sub("", text).strip()
+
+
+def wrapped_url_fragments(texts: list[str]) -> set[str]:
+    """Source fragments that are continuation pieces of one wrapped URL.
+
+    A raw link is intentionally replaced by the 「点击播放」 card, so the whole
+    wrapped link (not just the piece containing ``http://``) is exempt.
+    """
+    fragments: set[str] = set()
+    run: list[str] = []
+
+    def flush() -> None:
+        if len(run) >= 2 and any("://" in piece for piece in run):
+            fragments.update(run)
+        run.clear()
+
+    for text in texts:
+        if URL_FRAGMENT_RE.match(text):
+            run.append(text)
+        else:
+            flush()
+    flush()
+    return fragments
 
 
 # Editorial boilerplate the generator strips by design (mirrors
@@ -331,11 +369,20 @@ def validate(source_path: Path, html_path: Path) -> dict[str, Any]:
     missing: list[str] = []
     underrepresented: list[dict[str, Any]] = []
     normalized_visible = normalize_for_match(visible)
+    url_fragments = wrapped_url_fragments(texts)
 
     for text, expected in expected_counts.items():
         actual = visible.count(text)
         actual_counts[text] = actual
         if actual == 0:
+            # Standalone bullet glyphs are list formatting: the canonical
+            # components own their markers (see LIST_MARKER_RE).
+            if is_list_marker_only(text):
+                continue
+            # A wrapped raw link under 主图视频 becomes the 点击播放 card, so every
+            # piece of that link is replaced by design.
+            if text in url_fragments and "video-demo" in html_text:
+                continue
             normalized_text = normalize_for_match(text)
             if normalized_text and normalized_text in normalized_visible:
                 # Present after canonical rewrite (title prefix / chapter numeral

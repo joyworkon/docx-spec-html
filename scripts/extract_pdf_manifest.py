@@ -16,7 +16,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from pdf_source import clean_text, extract_page_tables, is_pdf, iter_text_lines, open_pdf
+from pdf_source import clean_text, content_image_infos, extract_page_tables, is_pdf, iter_text_lines, open_pdf
 
 
 def body_font_size(lines: list[dict[str, Any]]) -> float:
@@ -57,7 +57,7 @@ def extract_manifest(
         per_page: list[tuple[int, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]] = []
         for page_index, page in enumerate(doc):
             lines = list(iter_text_lines(page.get_text("dict")))
-            infos = page.get_image_info(xrefs=True)
+            infos = content_image_infos(doc, page)
             tables = extract_page_tables(page, page_index)
             per_page.append((page_index, lines, infos, tables))
             all_lines.extend(lines)

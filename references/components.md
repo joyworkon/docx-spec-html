@@ -32,9 +32,12 @@ Use `.attr-table` for paired directions. Default every header to the same brand 
 - Use `.tag-example-table` when a tag example must appear larger than the draft default.
 - A tag example is always `.doc-table.tag-example-table` inside `.doc-table-wrap`; its first row contains non-empty `<th>` cells and every image body cell uses `.table-media-cell > .image-holder > img`. The variant class never replaces the required `.doc-table` base class.
 - All semantic tables share one visual tier: separate rounded cells, 8px gaps, 10px corners, centred 24px body copy, uniform light-grey `#f7f7f7` body cells, centred red 24px/700 top headers, and 12px equal inset around every image. Cell text longer than 10 visible characters is the exception to centring: it carries `.justify-txt` and renders justified with a left-aligned last line.
+- `.doc-table` is `table-layout: fixed`, so every column renders an equal track unless the table carries a `<colgroup>`. When a source table's columns are strongly unequal (one column above ~40% of the table width, such as a `内容结构` or `结构化（建议）` prose column), emit `<col style="width: N%">` tracks derived from the source cell geometry: equal tracks squeeze that prose into a narrow ribbon and can push a source-narrow cell (e.g. a 示例 column holding a `点击播放` card) below its content's minimum width.
 - Use `.text-block.subtitle-table-group` when a local subtitle owns consecutive `child label → table` pairs. Each `.nested-table-group` stays inside that white container and uses `.caption-line` for its grey-square child heading.
 - Use `.tag-example-table` for equal-column image showcases such as `展现样式` and `前台展示案例`; give every image in the showcase row one shared rendered height while keeping width automatic and source proportions intact. The generator derives that shared height from the real pixel aspects and the fixed column track (`--tag-example-media-height` inline on the table), so images never spill out of their cell cards; `max-width: 100%` remains as the hard clamp. Exception: when the row's image aspect ratios diverge strongly (widest/narrowest ratio above ~1.5), the generator adds the `.is-fit-width` variant class so the row switches to equal-width columns with fully proportional images (heights may differ, mirroring the source).
 - Apply the media inset to `.cm-img`, `.mt-eg`, `.ba-col .image-holder`, attribute images, generic Word-table images, and specification-table images. Never use `padding: 0` to make table media touch a card edge.
+- A source cell that lays out several images side by side (screen-example rows, multi-example cells) keeps them side by side in one `.cell-media-row` flex container; each `.image-holder` inside it flexes to equal width while the images keep their own proportions. Never stack same-cell images vertically — except when the source itself stacks them at full cell width in one cell (e.g. two stacked 商卡 screenshots), where the vertical stack is kept because a side-by-side row would shrink each image to an unreadable thumbnail.
+- A `.ba-compare` body text cell is a rounded-table body cell: `.ba-col .ba-text` carries the light-grey `#f7f7f7` fill, corner radius, and inset, and text longer than 10 visible characters justifies like any other body cell.
 - Add `.row-head` to a non-empty first-column body cell when its compact text is shorter than 10 characters; this makes short labels such as `首图`、`第二张`、`白底图` bold. Do not infer row-header weight for longer first-column prose.
 - Independent prose always uses `.text-block.plain-block > p`; `.text-block` alone is only a white wrapper and does not carry the canonical 28px prose contract.
 
@@ -45,13 +48,13 @@ Use `.attr-table` for paired directions. Default every header to the same brand 
 - Use `.half-image` for centered 图文详情 examples up to about half the content width.
 - Use `.image-holder` around every source image except the synthetic Hero overlay.
 - Use `.caption-image-card` only for a real image formula such as `[图A] + [图B] = 效果`; title formulas such as `[品牌] + 产品词` are not image captions.
-- Use `.module-layout` plus `.ml-grid`/`.ml-block` only after visually inspecting the source diagram. Reproduce exact on-image wording and relative areas, and set an inline `aspect-ratio` on `.module-layout` matching the source image's overall ratio (e.g. `aspect-ratio: 1 / 1` for a square schematic).
+- Use `.module-layout` plus `.ml-grid`/`.ml-block` only after visually inspecting the source diagram. Reproduce exact on-image wording and relative areas, and match the source image's overall ratio (e.g. `aspect-ratio: 1 / 1` for a square schematic). Put that inline `aspect-ratio` on `.ml-grid` together with `width: 100%`, not on `.module-layout` alone: the container's ratio only squares the yellow frame while the grid keeps its content height, so the blocks fill just part of the panel and the schematic reads as landscape. Never pin `.ml-grid` to a fixed height (`height: 100%` or a px height): at narrow widths the blocks' min-content height exceeds the ratio height and the bottom blocks spill outside the red frame.
 
 Never preserve aspect ratio through `object-fit: contain` plus a fixed box for export-critical images. Prefer `width:100%;height:auto` or `width:auto;max-width:100%`.
 
 ## 3. Metrics and labels
 
-- Use `.metric-emphasis` for every standalone metric line shaped like `[效果数据/样本/日期标签：] XX率 +X%/％/PP`: white background, green border/value, enlarged number+unit, and inline green up-arrow SVG. Keep the optional source label (for example `10SKU（0522-0531）：`) inside the same component; do not leave it as an ordinary paragraph.
+- Use `.metric-emphasis` for every standalone metric line shaped like `[效果数据/样本/日期标签：] XX率 +X%/％/PP`: white background, green border/value, enlarged number+unit, and inline green up-arrow SVG. Keep the optional source label (for example `10SKU（0522-0531）：`) inside the same component; do not leave it as an ordinary paragraph. A short standalone conversion line that ends with `↑`/`↓` instead of a numeric value (e.g. `订单转化率↑`, `提升加购率↑，降低退货率↓`) also uses the green `.metric-emphasis` box.
 - Keep a metric inside the relevant white module but below its label; let it fill available width.
 - For a colon label, highlight only `.label-text`; render `.label-rest` on the next aligned line without a red square or highlight.
 - For a colon-less label, use `.label-plain`: red square, no pink highlight.
@@ -60,7 +63,7 @@ Never preserve aspect ratio through `object-fit: contain` plus a fixed box for e
 
 ## 4. Video and export runtime
 
-In the 主图视频 module, collapse all click-to-watch signals into one `点击播放` card. Pair `视频案例` and `点击播放` as equal-height table-style headers and keep the inline play icon. Do not expose source URLs as text links.
+In the 主图视频 module, collapse all click-to-watch signals into one `点击播放` card. Keep the source table's own column headers: the copy column keeps its source head (e.g. `内容结构`), and a descriptive media head such as `示例` stays as a grey `video-case-head` above the pink `点击播放` card, both at equal header height. Do not expose source URLs as text links, and never leave the play card as the only header.
 
 For page export:
 

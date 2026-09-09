@@ -31,7 +31,7 @@ DEFAULT_FONT = SKILL_ROOT / "assets" / "fonts" / "JINGDONGLangZhengTi1-Bold.woff
 DEFAULT_H2C = SKILL_ROOT / "assets" / "vendor" / "html2canvas.min.js"
 DEFAULT_EDITOR = SKILL_ROOT / "assets" / "vendor" / "html-editor.html"
 GENERATOR_CSS_MARKER = "/* ===== Generic DOCX generator additions ===== */"
-SKILL_RELEASE = "2026.08.28-r19"
+SKILL_RELEASE = "2026.09.08-r20"
 
 
 # Editorial boilerplate removed from every source: the 【官方建议】 title marker,
@@ -157,9 +157,18 @@ def justify_long_text(fragment: str) -> str:
             return match.group(0)
         return justify_add_class(open_tag) + process_inner(inner) + f"</{kind}>"
 
+    def ba_text_repl(match: re.Match) -> str:
+        open_tag, inner = match.group(1), match.group(2)
+        if justify_visible_len(inner) <= JUSTIFY_MIN_CHARS:
+            return match.group(0)
+        return justify_add_class(open_tag) + process_inner(inner) + "</p>"
+
     fragment = re.sub(r'<div class="label-rest">(.*?)</div>', label_repl, fragment, flags=re.S)
     fragment = re.sub(r"(<li(?:\s[^>]*)?>)(.*?)</li>", item_repl, fragment, flags=re.S)
     fragment = re.sub(r"(<(td|th)(?:\s[^>]*)?>)(.*?)</\2>", cell_repl, fragment, flags=re.S)
+    # .ba-text paragraphs (ba-compare bodies, video-case copy) follow the same
+    # >10-visible-characters justification rule as table cells.
+    fragment = re.sub(r'(<p class="ba-text">)(.*?)</p>', ba_text_repl, fragment, flags=re.S)
     return fragment
 
 
@@ -411,12 +420,20 @@ def render_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes], ext
     its grid coverage with HTML colspan/rowspan instead.
     """
     grid = [list(row.cells) for row in table.rows]
+    # A first row that is entirely empty (no text in any cell) is not a header:
+    # the source table is a headerless media/body grid, so render every row as
+    # body rows instead of emitting a blank red header strip.
+    first_row_texts = [
+        clean_text(cell.text)
+        for cell in (grid[0] if grid else [])
+    ]
+    has_header = bool(grid) and any(first_row_texts)
     rows_html: list[str] = []
     emitted_cells: set[int] = set()
     media_images: list[tuple[str, int]] = []  # (image target, cell colspan)
     for row_idx, cells in enumerate(grid):
         cells_html: list[str] = []
-        tag = "th" if row_idx == 0 else "td"
+        tag = "th" if (row_idx == 0 and has_header) else "td"
         cell_index = 0
         while cell_index < len(cells):
             cell = cells[cell_index]
@@ -446,6 +463,10 @@ def render_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes], ext
                     if target in blobs:
                         image_html.append(f'<div class="image-holder">{image_tag(target, blobs, texts[0] if texts else "表格图片")}</div>')
                         media_images.append((target, colspan_count))
+            # Several images sharing one source cell sit side by side in the
+            # document (e.g. 图文详情 屏幕示例行), never stacked vertically.
+            if len(image_html) > 1:
+                image_html = [f'<div class="cell-media-row">{"".join(image_html)}</div>']
             text_html = "<br>".join(esc(text) for text in texts)
             colspan = f' colspan="{colspan_count}"' if colspan_count > 1 else ""
             rowspan = f' rowspan="{rowspan_count}"' if rowspan_count > 1 else ""
@@ -838,6 +859,18 @@ def is_conversion_metric(text: str) -> bool:
     # Preserve the source label verbatim inside the green component; require a
     # terminal colon so ordinary prose containing a percentage is not promoted.
     return bool(re.fullmatch(r"[^：:]{1,40}[：:]", remainder))
+
+
+# A standalone effect line that ends with an up/down arrow instead of a numeric
+# value, e.g. ``订单转化率↑`` / ``提升加购率↑，降低退货率↓``. These are the same
+# kind of emphasis statement as a +X% metric line and belong in the same green
+# metric-emphasis box — not in a plain paragraph or a grey list item.
+BARE_ARROW_METRIC_RE = re.compile(r"^[一-龥A-Za-z0-9（）()，,、·/％%PPpp↑↓\s]{2,40}[↑↓]$")
+
+
+def is_bare_arrow_metric(text: str) -> bool:
+    cleaned = clean_text(text)
+    return "率" in cleaned and bool(BARE_ARROW_METRIC_RE.match(cleaned))
 
 
 METRIC_ARROW_SVG = (
@@ -1299,16 +1332,30 @@ def video_case_table(table: Table, doc: DocumentObject, blobs: dict[str, bytes])
     rows = list(table.rows)
     if len(rows) < 2 or len(rows[0].cells) < 2:
         return video_demo_box()
+    # Keep the source table's own headers: the left column keeps its title
+    # (内容结构 / 视频案例 …), and a descriptive right header (示例 …) stays as a
+    # grey head above the red 点击播放 card. Only a right header that is itself
+    # the click-to-watch signal is fully replaced by the play card.
+    header_cells = [clean_text(cell.text) for cell in rows[0].cells]
+    left_head = header_cells[0] or "视频案例"
+    right_head = header_cells[1] if len(header_cells) > 1 else ""
+    show_right_head = bool(right_head) and not (
+        VIDEO_HINT_RE.search(right_head) or VIDEO_DEMO_RE.search(right_head)
+    )
     copy_cell, media_cell = rows[1].cells[:2]
     paragraphs = [clean_text(p.text) for p in copy_cell.paragraphs if clean_text(p.text)]
     copy_html = "".join(f'<p class="ba-text">{esc(text)}</p>' for text in paragraphs)
     targets = cell_image_targets(media_cell, doc, blobs)
-    media_html = video_demo_box() + "".join(
-        f'<div class="image-holder">{image_tag(target, blobs, "视频案例")}</div>' for target in targets
+    media_html = (
+        (f'<div class="video-case-head">{esc(right_head)}</div>' if show_right_head else "")
+        + video_demo_box()
+        + "".join(
+            f'<div class="image-holder">{image_tag(target, blobs, "视频案例")}</div>' for target in targets
+        )
     )
     return (
         '<div class="video-case-grid video-case-card">'
-        f'<div class="video-case-copy"><div class="video-case-head">视频案例</div><div class="video-case-body">{copy_html}</div></div>'
+        f'<div class="video-case-copy"><div class="video-case-head">{esc(left_head)}</div><div class="video-case-body">{copy_html}</div></div>'
         f'<div class="video-case-media">{media_html}</div>'
         '</div>'
     )
@@ -1510,7 +1557,7 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
         if not text:
             continue
 
-        if is_conversion_metric(text):
+        if is_conversion_metric(text) or is_bare_arrow_metric(text):
             flush_plain()
             flush_bracket()
             flush_label()
@@ -1588,7 +1635,12 @@ def render_section_blocks(blocks: list[ParagraphBlock | TableBlock], doc: Docume
             pending_images = []
             continue
 
-        if BRACKET_RE.match(text):
+        # A 【模块】 bracket line is a top-level red-list item only when NO label
+        # container is open. Under an open label (e.g. 整体规范要求：) it is a
+        # child of that label and must stay a grey-square source-list item —
+        # otherwise children escape their parent's white module and wrongly get
+        # the top-level pink-highlight treatment.
+        if BRACKET_RE.match(text) and pending_label is None:
             flush_plain()
             flush_label()
             bracket_items.append(text)

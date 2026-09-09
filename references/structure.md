@@ -44,10 +44,11 @@ Never pull later material forward to improve visual balance. Split or combine wr
 - Leading `标题：XXX` duplicate → Hero metadata only when `XXX` equals the document title; omit it from overview body copy.
 - Overview first sentence → independent white `.lead`.
 - Overview bracketed items → `.red-list`.
+- A `【…】` bracket line that appears while a colon label is open is a child of that label: keep it at the grey-square `.source-list` level (its `【…】：` prefix may stay bold), never promote it to a top-level `.red-list` item.
 - Fixed module title → numbered `.card.spec-card` using `{ 标题 }`.
 - Module-level `前缀：内容` → `.red-list`; split the prefix into `.label-text` and the remainder into `.label-rest`.
 - Pure labels ending with `：` → `.label-line`.
-- Nested list items → `.source-list`, grey squares, one-level indentation.
+- Nested list items → `.source-list`, grey squares, one-level indentation. Lettered sub-items (`a.`/`b.`/`c.`) under a numbered label stay at the same grey-square level; reserve the hollow-square `.deep` level for genuine third-level nesting.
 - Independent prose → separate `.plain-block`.
 - Module-local `（1）（2）（3）（4）` subtitles → child white modules inside the same card, never new chapters. Exception: when those subtitles sit under a numbered parent label (such as `2.各区域详细规范说明：`) and each carries its own sub-list (`a.`/`b.`/`c.`), keep the parent label and all subtitle groups in ONE white container and render each subtitle as a grey-square `.caption-line`; only leaf-level `（1）`–`（4）` subtitles keep the pink marker.
 - Consecutive `子标题 → 表格` pairs under one module-local subtitle → one shared white subtitle container; child titles use grey squares and one nested indent.
