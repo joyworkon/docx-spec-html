@@ -16,6 +16,7 @@ Convert Word specification documents (or PDF-only sources) into polished 1280px 
 - Strip the source `N、` prefix from module titles because the card already carries `01`–`08`. Never promote numbered body items or unnumbered phrases into extra chapters.
 - Remove editorial boilerplate from the source before rendering: strip `【官方建议】` from any title or heading, delete the entire `'官方建议'诠释：…` block (label plus the paragraph that follows the colon), and delete the entire `适用类目范围：…` block (label plus its paragraph). When the document contains none of these markers, leave the content untouched.
 - Preserve every visible text occurrence, image occurrence, table relationship, and source block order. Hierarchy reconstruction may change grouping and styling, never reading order.
+- Treat a table whose effective source width is more than five columns as a transposition case. Count columns after expanding `colspan`/merged cells. In the final semantic matrix, move the original horizontal column headers to the left as row headers (`<th scope="row">`), move the original left-side row headers to the top as column headers (`<th scope="col">`), and move every text, image, and merged-cell relationship to the matching transposed coordinate. This is a full matrix transform, not a label-only rotation. If a table continues across pages, treat the pages as one logical table and keep the same orientation throughout.
 
 ## Resource routing
 
@@ -60,7 +61,7 @@ Convert Word specification documents (or PDF-only sources) into polished 1280px 
 
    PDF-only: skip this step and build the page model-led from the manifest, the extracted images, and `assets/styles.css`.
 
-4. Reconstruct hierarchy against the PDF. Resolve module boundaries, captions, merged cells, alternating headers, and image groupings with model judgment. Choose existing semantic components; never hand-author alternate wrappers or class combinations for them.
+4. Reconstruct hierarchy against the PDF. Resolve module boundaries, captions, merged cells, alternating headers, and image groupings with model judgment. Before styling each table, record its effective column/row matrix and apply the wide-table transposition rule when it exceeds five columns. Choose existing semantic components; never hand-author alternate wrappers or class combinations for them.
 5. Review the HTML screen-by-screen against the PDF and golden reference. Fix every mismatch.
 6. During iteration, validate the candidate page (the source argument is the `.docx`, or the `.pdf` for a PDF-only source):
 
@@ -91,6 +92,7 @@ Never deliver a candidate file or copy/rename it into place without this finaliz
 - Keep `标题 → 图片 → 说明` and every other source sequence unchanged. Titles above images remain above; captions below remain below.
 - Treat a leading authoring instruction such as `标题：XXX` as Hero metadata when `XXX` equals the document title; do not repeat that instruction as overview body copy.
 - Preserve Word tables as row/column structures rather than unrelated cards.
+- For tables wider than five effective source columns, render the semantic transposed matrix: source column headers become left-side row headers and source row headers become top horizontal headers. Preserve each cell's source intersection, media, `rowspan`/`colspan`, and continuation relationship; do not solve the width problem by shrinking the original table into unreadable text or by adding horizontal scrolling.
 - Render section titles exactly as `{ 标题 }`, with one inner space on both sides. Use `INTRODUCTION` on every card header.
 - Force `商品信息运营规范` onto the second hero-title line. Use `JINGDONGLangZhengTi1-Bold` for `h1`, `MiSans-Bold` for card titles, and Chinese update text.
 - Keep the Hero solid `#FF2B22`. Do not add gradients, textures, rings, paths, or radial highlights. A replaceable `.hero-overlay` is allowed only through the supplied runtime.
@@ -128,6 +130,7 @@ Never deliver a candidate file or copy/rename it into place without this finaliz
 12. Keep the source table's own column headers on the video-case table (e.g. `内容结构` left, `示例` right): both heads render as equal-height grey table-style headers, and the pink `点击播放` card (with its inline play icon) sits under the `示例` head. Never drop a descriptive source header so that only the play card remains. Keep all table/card media proportional and use the canonical 12px equal padding on every side; never make an image flush with its card edge.
 13. Confirm `review_gate.py` passes its DOM component contracts; then inspect screenshots and smoke-test both floating controls. Deliver only the file emitted by `finalize_output.py` with a matching SHA-256 review report.
 14. When replacing the standard editor, update `assets/vendor/html-editor.html`, increment the skill release, then rebind every retained final page with `scripts/rebind_embedded_editor.py` before finalization. Sync the source skill to every installed skill directory; never replace only one generated page or one installed copy.
+15. For every source table wider than five effective columns, manually spot-check the transposed header axes and at least three source cell intersections (including any image or merged/continued cell). Confirm the value/media moved with its header pair and that no continuation table reverts to the source orientation.
 
 ## Editable review mode
 

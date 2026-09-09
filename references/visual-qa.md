@@ -33,6 +33,7 @@ Confirm:
 - approximately 28px body text without clipping or overlap;
 - proportional, centered images and unclipped captions;
 - aligned table columns and merged headers/cells; short table text is horizontally and vertically centered, while cell text longer than 10 visible characters is justified with a left-aligned last line;
+- for every source table wider than five effective columns, the source top headers appear as left-side row headers and the source left-side row headers appear across the top; spot-check at least three text/image intersections to confirm the content moved with the headers, and confirm split-page continuations keep the transposed orientation;
 - long list items and `.label-rest` paragraphs justify flush on both edges with a left-aligned last line—spot-check mixed CJK/Latin lines (digits, `+`, codes), which only stretch through the injected U+200B break opportunities;
 - one consistent rounded-card table system: 24px centered body copy, 24px/700 centered red top headers, light-grey body cells, bold short first-column row headers, 10px corners, 8px gaps, and 12px equal inset around every table image;
 - one shared white container for any local subtitle plus consecutive child-label tables; grey child squares and nested indentation remain visible;
@@ -61,6 +62,8 @@ python3 scripts/review_gate.py source.docx final-output.html [--profile body-car
 The gate rejects missing release metadata, multiple/stacked stylesheets, known hierarchy and table regressions, external assets, missing controls, body-care profile mismatches, nested red lists, prose without `.plain-block`, malformed tag-example tables, and table images attached to the wrong media-cell component. The profile is auto-detected by default.
 
 Resolve missing or underrepresented text, image-count mismatch, table loss, and CSS invariant failures before delivery.
+
+Text and image counts do not prove a table transpose is semantically correct. For each wide table, compare the source matrix against the rendered DOM by checking the header axes and several source-coordinate/value pairs; include merged and continued regions when present.
 
 Two intentional exceptions are already encoded in the validator:
 
