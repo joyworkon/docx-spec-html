@@ -1247,6 +1247,66 @@ Error generating stack: `+o.message+`
     };
   }
 
+  var MARKER_STYLE_ID = 'joycode-marker-style';
+  var MARKER_CLASSES = ['joycode-marker-red', 'joycode-marker-gray', 'joycode-marker-outline'];
+
+  /** 识别由 ::before 绘制的小方块序号。只把近似正方形、尺寸较小且有填充/描边的伪元素视为方块。 */
+  function buildMarkerInfo(el) {
+    if (!el || !window.getComputedStyle) return undefined;
+    var pseudo;
+    try { pseudo = window.getComputedStyle(el, '::before'); } catch (error) { return undefined; }
+    if (!pseudo || !pseudo.content || pseudo.content === 'none' || pseudo.content === 'normal') return undefined;
+    var width = parseFloat(pseudo.width);
+    var height = parseFloat(pseudo.height);
+    if (!isFinite(width) || !isFinite(height) || width < 4 || height < 4 ||
+        width > 36 || height > 36 || Math.abs(width - height) > 4) return undefined;
+    var background = pseudo.backgroundColor || '';
+    var transparent = background === 'transparent' || /rgba\([^)]*,\s*0(?:\.0+)?\s*\)/i.test(background);
+    var borderWidth = Math.max(
+      parseFloat(pseudo.borderTopWidth) || 0,
+      parseFloat(pseudo.borderRightWidth) || 0,
+      parseFloat(pseudo.borderBottomWidth) || 0,
+      parseFloat(pseudo.borderLeftWidth) || 0
+    );
+    var hasBorder = borderWidth >= 1 && pseudo.borderTopStyle !== 'none';
+    if (transparent && !hasBorder) return undefined;
+    var markerStyle = 'gray';
+    if (el.classList.contains('joycode-marker-red')) markerStyle = 'red';
+    else if (el.classList.contains('joycode-marker-gray')) markerStyle = 'gray';
+    else if (el.classList.contains('joycode-marker-outline')) markerStyle = 'outline';
+    else if (transparent && hasBorder) markerStyle = 'outline';
+    else {
+      var rgb = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(background);
+      if (rgb && parseInt(rgb[1], 10) >= 200 && parseInt(rgb[2], 10) < 130 &&
+          parseInt(rgb[3], 10) < 130) markerStyle = 'red';
+    }
+    return { style: markerStyle };
+  }
+
+  function ensureMarkerStyleSheet() {
+    var style = document.getElementById(MARKER_STYLE_ID);
+    if (style) return style;
+    style = document.createElement('style');
+    style.id = MARKER_STYLE_ID;
+    style.textContent =
+      '.joycode-marker-red::before{background:#ff2b22!important;border:0!important;box-sizing:border-box!important}' +
+      '.joycode-marker-gray::before{background:#d8d8d8!important;border:0!important;box-sizing:border-box!important}' +
+      '.joycode-marker-outline::before{background:transparent!important;border:2px solid #c9c9c9!important;box-sizing:border-box!important}';
+    (document.head || document.documentElement).appendChild(style);
+    return style;
+  }
+
+  function setMarkerStyle(id, markerStyle) {
+    var el = findById(id);
+    if (!el || !buildMarkerInfo(el) || ['red', 'gray', 'outline'].indexOf(markerStyle) < 0) return;
+    beforeChange('方块样式');
+    ensureMarkerStyleSheet();
+    for (var i = 0; i < MARKER_CLASSES.length; i++) el.classList.remove(MARKER_CLASSES[i]);
+    el.classList.add('joycode-marker-' + markerStyle);
+    notifyChanged();
+    notifySelect(buildInfo(el));
+  }
+
   function buildInfo(el) {
     var path = buildPath(el);
     var rect = el.getBoundingClientRect();
@@ -1304,6 +1364,7 @@ Error generating stack: `+o.message+`
       lineHeight: lineHeightNum,
       letterSpacing: letterSpacingNum,
       fontFamily: cs.fontFamily,
+      markerInfo: buildMarkerInfo(el),
       tableInfo: buildTableInfo(el),
       flowInfo: buildFlowInfo(el),
       layoutInfo: {
@@ -4103,6 +4164,9 @@ Error generating stack: `+o.message+`
       case 'SET_BG_COLOR':
         setBgColor(msg.payload.id, msg.payload.color);
         break;
+      case 'SET_MARKER_STYLE':
+        setMarkerStyle(msg.payload.id, msg.payload.style);
+        break;
       case 'SET_TEXT_ALIGN':
         setTextAlign(msg.payload.align);
         break;
@@ -5357,6 +5421,26 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     return document.querySelector('.toolbar-right');
   }
 
+  // 核心导出器的默认名是 export.html；在下载动作发生前替换为当前导入文件名。
+  // PNG 与切图原本已按 .file-name 命名，这里同时兜底普通 export.png。
+  function importedFileName() {
+    var label = document.querySelector('.file-name');
+    return label ? String(label.textContent || '').trim() : '';
+  }
+  function importedFileBase() {
+    return importedFileName().replace(/\.html?$/i, '') || 'export';
+  }
+  document.addEventListener('click', function (event) {
+    var anchor = event.target && event.target.closest ? event.target.closest('a[download]') : null;
+    if (!anchor) return;
+    var currentName = importedFileName();
+    if (anchor.download === 'export.html' && currentName) {
+      anchor.download = /\.html?$/i.test(currentName) ? currentName : currentName + '.html';
+    } else if (anchor.download === 'export.png' && currentName) {
+      anchor.download = importedFileBase() + '.png';
+    }
+  }, true);
+
   // ============ 表格列宽属性区 / 对齐提示 ============
   var latestTableInfo = null;
   function sendTableColumnWidth(value, phase) {
@@ -5593,6 +5677,75 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     section.appendChild(title); section.appendChild(btn); section.appendChild(hint);
     var firstSection2 = panel.querySelector('.panel-section');
     if (firstSection2 && firstSection2.nextSibling) panel.insertBefore(section, firstSection2.nextSibling);
+    else panel.appendChild(section);
+  }
+
+  // ============ 段落序号方块样式 ============
+  var latestMarkerInfo = null;
+  function markerSwatchStyle(kind) {
+    var common = 'display:inline-block;width:16px;height:16px;border-radius:4px;box-sizing:border-box;flex:0 0 auto;';
+    if (kind === 'red') return common + 'background:#ff2b22;border:0;';
+    if (kind === 'outline') return common + 'background:transparent;border:2px solid #c9c9c9;';
+    return common + 'background:#d8d8d8;border:0;';
+  }
+  function ensureMarkerStylePanel() {
+    var old = document.getElementById('ed-marker-style-panel');
+    var panel = document.querySelector('.property-panel');
+    if (!panel || !latestMarkerInfo || !latestSelectedId) {
+      if (old) old.remove();
+      return;
+    }
+    var current = latestMarkerInfo.style || 'gray';
+    if (old) {
+      var oldButtons = old.querySelectorAll('[data-marker-style]');
+      for (var i = 0; i < oldButtons.length; i++) {
+        oldButtons[i].classList.toggle('mini-btn-active', oldButtons[i].getAttribute('data-marker-style') === current);
+      }
+      return;
+    }
+    var section = document.createElement('div');
+    section.id = 'ed-marker-style-panel';
+    section.className = 'panel-section';
+    var title = document.createElement('h4');
+    title.textContent = '序号方块';
+    var row = document.createElement('div');
+    row.className = 'style-row';
+    var label = document.createElement('span');
+    label.className = 'style-label';
+    label.textContent = '样式';
+    var group = document.createElement('div');
+    group.className = 'btn-group';
+    [
+      { key: 'red', label: '红色实心' },
+      { key: 'gray', label: '灰色实心' },
+      { key: 'outline', label: '灰色镂空' },
+    ].forEach(function (item) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'mini-btn' + (current === item.key ? ' mini-btn-active' : '');
+      button.setAttribute('data-marker-style', item.key);
+      button.title = item.label;
+      button.setAttribute('aria-label', item.label);
+      button.style.cssText = 'width:42px;height:32px;display:inline-flex;align-items:center;justify-content:center';
+      var swatch = document.createElement('span');
+      swatch.style.cssText = markerSwatchStyle(item.key);
+      button.appendChild(swatch);
+      button.addEventListener('click', function () {
+        postToIframe({
+          source: 'ed-host',
+          type: 'SET_MARKER_STYLE',
+          payload: { id: latestSelectedId, style: item.key },
+        });
+      });
+      group.appendChild(button);
+    });
+    var hint = document.createElement('div');
+    hint.style.cssText = 'margin:7px 0 0 72px;color:var(--text-secondary);font-size:11px;line-height:1.5';
+    hint.textContent = '切换当前段落前的红色实心、灰色实心或灰色镂空方块。';
+    row.appendChild(label); row.appendChild(group);
+    section.appendChild(title); section.appendChild(row); section.appendChild(hint);
+    var firstSection = panel.querySelector('.panel-section');
+    if (firstSection && firstSection.nextSibling) panel.insertBefore(section, firstSection.nextSibling);
     else panel.appendChild(section);
   }
 
@@ -5901,8 +6054,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       latestSelectedId = nextSelectedId;
       latestLayoutInfo = d.payload && d.payload.layoutInfo ? d.payload.layoutInfo : null;
       latestFlowInfo = d.payload && d.payload.flowInfo ? d.payload.flowInfo : null;
+      latestMarkerInfo = d.payload && d.payload.markerInfo ? d.payload.markerInfo : null;
       ensureTableWidthPanel();
       ensureFlowDeletePanel();
+      ensureMarkerStylePanel();
       ensureLayoutPanel();
     } else if (d.type === 'CHANGED') {
       postToIframe({ source: 'ed-host', type: 'GET_DRAFT_HTML' });
@@ -5913,10 +6068,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       latestSelectedId = null;
       latestLayoutInfo = null;
       latestFlowInfo = null;
+      latestMarkerInfo = null;
       syncGridConfig();
       syncGuideConfig();
       ensureTableWidthPanel();
       ensureFlowDeletePanel();
+      ensureMarkerStylePanel();
       ensureLayoutPanel();
     } else if (d.type === 'DELETE_REJECTED') {
       alert((d.payload && d.payload.reason) || '该元素不能删除');
@@ -7401,6 +7558,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     ensureTextAlignTitle();
     ensureTableWidthPanel();
     ensureFlowDeletePanel();
+    ensureMarkerStylePanel();
     ensureLayoutPanel();
     ensureGridBtn();
     ensureGuideBtn();
