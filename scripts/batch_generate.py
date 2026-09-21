@@ -31,7 +31,17 @@ DEFAULT_FONT = SKILL_ROOT / "assets" / "fonts" / "JINGDONGLangZhengTi1-Bold.woff
 DEFAULT_H2C = SKILL_ROOT / "assets" / "vendor" / "html2canvas.min.js"
 DEFAULT_EDITOR = SKILL_ROOT / "assets" / "vendor" / "html-editor.html"
 GENERATOR_CSS_MARKER = "/* ===== Generic DOCX generator additions ===== */"
-SKILL_RELEASE = "2026.09.08-r20"
+SKILL_RELEASE = "2026.09.21-r21"
+
+# MiSans body fonts. The canonical stylesheet references MiSans / MiSans-Normal /
+# MiSans-Bold / MiSans-Heavy; to keep a delivered page pixel-identical on machines
+# without MiSans installed, the generator subsets the three used weights to the
+# characters the page actually renders and embeds them as data-URI @font-face
+# aliases. Drop the official MiSans TTFs into assets/fonts/misans-src/ (see
+# assets/fonts/README.md); when the sources or fontTools are unavailable the
+# generator silently falls back to plain name references.
+MISANS_SRC_DIR = SKILL_ROOT / "assets" / "fonts" / "misans-src"
+MISANS_WEIGHTS = {"Normal": 400, "Bold": 700, "Heavy": 900}
 
 
 # Editorial boilerplate removed from every source: the 【官方建议】 title marker,
@@ -270,6 +280,93 @@ def load_css(style_path: Path, font_path: Path | None) -> str:
             count=1,
         )
     return css
+
+
+def _page_visible_characters(page_html: str) -> str:
+    """Characters that appear as visible text (style/script contents skipped)."""
+    import html.parser
+
+    class _Visible(html.parser.HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.parts: list[str] = []
+            self.skip = 0
+
+        def handle_starttag(self, tag, attrs):
+            if tag in {"style", "script", "noscript"}:
+                self.skip += 1
+
+        def handle_endtag(self, tag):
+            if tag in {"style", "script", "noscript"} and self.skip:
+                self.skip -= 1
+
+        def handle_data(self, data):
+            if not self.skip:
+                self.parts.append(data)
+
+    parser = _Visible()
+    parser.feed(page_html)
+    chars = set("".join(parser.parts))
+    chars.update(chr(c) for c in range(0x20, 0x7F))
+    chars.update("　「」『』【】〔〕《》〈〉·—…～‰℃×÷±≈≤≥↑↓←→★☆√①②③④⑤⑥⑦⑧⑨⑩❌✅")
+    return "".join(sorted(chars))
+
+
+def misans_font_css(page_html: str) -> str:
+    """Subset + embed the MiSans weights the canonical stylesheet references.
+
+    Each available ``assets/fonts/misans-src/MiSans-{Normal,Bold,Heavy}.ttf`` is
+    subsetted to the page's visible characters and emitted as woff2 data-URI
+    @font-face rules under BOTH the shared family (``MiSans`` at the weight's
+    numeric value) and the per-weight alias (``MiSans-Bold`` etc.) the CSS
+    references, so every existing font-family declaration resolves to embedded
+    fonts. Requires fontTools (+ brotli for woff2); returns "" when the source
+    TTFs or fontTools are unavailable so generation keeps working offline.
+    """
+    if not MISANS_SRC_DIR.is_dir():
+        return ""
+    try:
+        from fontTools.subset import Options, Subsetter, load_font
+        import brotli  # noqa: F401  (required for the woff2 flavor)
+    except ImportError:
+        return ""
+    text = _page_visible_characters(page_html)
+    rules: list[str] = []
+    for name, weight in MISANS_WEIGHTS.items():
+        src = MISANS_SRC_DIR / f"MiSans-{name}.ttf"
+        if not src.exists():
+            continue
+        try:
+            options = Options()
+            options.flavor = "woff2"
+            options.hinting = False
+            options.desubroutinize = True
+            options.layout_features = ["*"]
+            options.name_IDs = ["*"]
+            options.notdef_outline = True
+            options.recalc_bounds = True
+            options.recalc_average_width = True
+            options.prune_unicode_ranges = True
+            font = load_font(str(src), options)
+            subsetter = Subsetter(options)
+            subsetter.populate(text=text)
+            subsetter.subset(font)
+            import io
+
+            buffer = io.BytesIO()
+            font.save(buffer)
+            blob = base64.b64encode(buffer.getvalue()).decode("ascii")
+        except Exception:  # noqa: BLE001 - font embedding must never break generation
+            continue
+        uri = f"data:font/woff2;base64,{blob}"
+        for family in ("MiSans", f"MiSans-{name}"):
+            rules.append(
+                "@font-face {"
+                f'font-family: "{family}"; font-weight: {weight}; font-style: normal; '
+                f'font-display: block; src: url("{uri}") format("woff2");'
+                "}"
+            )
+    return "\n".join(rules)
 
 EDITABLE_RUNTIME = """
 <div class="edit-toolbar" data-html-edit-toolbar data-html2canvas-ignore>
@@ -1972,7 +2069,15 @@ def render_html(docx_path: Path, style_path: Path, font_path: Path | None, updat
 </body>
 </html>
 """
-    return inject_hyperlink_buttons(page, doc)
+    page = inject_hyperlink_buttons(page, doc)
+    # Embed a MiSans subset so viewers without the font installed still get the
+    # intended typography. Computed after hyperlink buttons are injected so the
+    # button labels are part of the subset text; prefixed right after the
+    # canonical <style> tag.
+    misans_css = misans_font_css(page)
+    if misans_css:
+        page = page.replace("<style>", "<style>" + misans_css + "\n", 1)
+    return page
 
 
 def docx_inputs(input_path: Path) -> list[Path]:

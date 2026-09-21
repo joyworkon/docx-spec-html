@@ -61,6 +61,7 @@ Never preserve aspect ratio through `object-fit: contain` plus a fixed box for e
 - For a colon-less label, use `.label-plain`: red square, no pink highlight.
 - Keep lower-level captions grey and do not give them a red square.
 - A DOCX hyperlink （操作手册 / 平台规则 / 白皮书 …) keeps its anchor text verbatim in the body copy and gains one red `.link-btn`「点击查看」pill right after it; the URL lives only on the button. Never expose raw URLs as text.
+- A trailing source-file download block (`源文件下载链接 / 链接地址：URL` + `访问密码：XXX`) becomes a single red `.link-btn`「点击下载」button (URL in `href`, `target="_blank" rel="noopener"`) with the password as adjacent plain text「访问密码：XXX」, e.g. `<div class="dl-row"><a class="link-btn" href="…">点击下载</a><span class="dl-pwd">访问密码：XXX</span></div>`; never print the raw URL.
 
 ## 4. Video and export runtime
 

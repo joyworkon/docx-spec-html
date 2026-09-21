@@ -164,6 +164,29 @@ ADVICE_BLOCK_RE = re.compile(r"['\"“”‘’]?官方建议['\"“”‘’]?�
 SCOPE_BLOCK_RE = re.compile(r"适用类目范围\s*[：:]")
 
 
+def boilerplate_continuation_texts(texts: list[str]) -> set[str]:
+    """Continuation lines of a stripped editorial boilerplate block.
+
+    PDF line-level sources split the '官方建议'诠释 / 适用类目范围 paragraph
+    across several lines. SKILL.md mandates deleting the WHOLE block (label plus
+    its paragraph), so every line after the marker line — up to and including
+    the first line that ends in sentence-final punctuation — is exempt too
+    (DOCX paragraph-level sources never hit this: their whole paragraph is one
+    text that the marker regex already exempts).
+    """
+    exempt: set[str] = set()
+    open_block = False
+    for text in texts:
+        if ADVICE_BLOCK_RE.search(text) or SCOPE_BLOCK_RE.search(text):
+            open_block = True
+            continue
+        if open_block:
+            exempt.add(text)
+            if re.search(r"[。！？!?.…]['\"”’」』)\]]?$", clean_text(text)):
+                open_block = False
+    return exempt
+
+
 def count_class(html_text: str, class_name: str) -> int:
     pattern = rf'<[^>]+\bclass="[^"]*\b{re.escape(class_name)}\b[^"]*"'
     return len(re.findall(pattern, html_text, flags=re.I))
@@ -370,6 +393,8 @@ def validate(source_path: Path, html_path: Path) -> dict[str, Any]:
     underrepresented: list[dict[str, Any]] = []
     normalized_visible = normalize_for_match(visible)
     url_fragments = wrapped_url_fragments(texts)
+    boilerplate_continuations = boilerplate_continuation_texts(texts)
+    href_urls = set(re.findall(r'href="(https?://[^"]+)"', html_text))
 
     for text, expected in expected_counts.items():
         actual = visible.count(text)
@@ -392,6 +417,17 @@ def validate(source_path: Path, html_path: Path) -> dict[str, Any]:
             # 【官方建议】 title mark (plus any 的副本 copy suffix), the whole
             # '官方建议'诠释：… block and the 适用类目范围：… block.
             if ADVICE_BLOCK_RE.search(text) or SCOPE_BLOCK_RE.search(text):
+                continue
+            # Lines that continue a stripped boilerplate block (the paragraph
+            # after the '官方建议'诠释：/适用类目范围： label) are removed by design.
+            if text in boilerplate_continuations:
+                continue
+            # A raw source URL is never displayed as text: the canonical
+            # replacement is a .link-btn / download button that carries the URL
+            # in its href (源文件下载链接, 操作手册, 平台规则 …). Skip the whole
+            # source line once the URL lives on a button.
+            source_urls = re.findall(r"https?://[^\s\"'）)]+", text)
+            if source_urls and all(any(u in href for href in href_urls) for u in source_urls):
                 continue
             if ADVICE_TITLE_MARK in text:
                 core = text.replace(ADVICE_TITLE_MARK, "")
