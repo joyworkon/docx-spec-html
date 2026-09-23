@@ -31,7 +31,7 @@ DEFAULT_FONT = SKILL_ROOT / "assets" / "fonts" / "JINGDONGLangZhengTi1-Bold.woff
 DEFAULT_H2C = SKILL_ROOT / "assets" / "vendor" / "html2canvas.min.js"
 DEFAULT_EDITOR = SKILL_ROOT / "assets" / "vendor" / "html-editor.html"
 GENERATOR_CSS_MARKER = "/* ===== Generic DOCX generator additions ===== */"
-SKILL_RELEASE = "2026.09.23-r22"
+SKILL_RELEASE = "2026.09.23-r23"
 
 # The visual editor moved online: the fixed 编辑 button on every generated page
 # opens this URL in a new tab (with a postMessage hand-off attempt plus a
@@ -929,8 +929,11 @@ CIRCLED_RE = re.compile(r"^\s*[①②③④⑤⑥⑦⑧⑨⑩⑪⑫]")
 LOCAL_SUBHEAD_RE = re.compile(r"^\s*[（(][0-9一二三四五六七八九十]+[）)]")
 NUMBERED_ITEM_RE = re.compile(r"^\s*(?:\d+|[一二三四五六七八九十]+)[、.．]")
 METRIC_UNIT_RE = r"(?:%|％|PP)"
+# Value: optional +, decimals, and an optional range tail ("+1.42-1.80%").
+# The sign is optional so bare rates like "搜索点击率2.66%" get the same big
+# number + up-arrow treatment as "+X%" metrics.
 METRIC_PAIR_RE = re.compile(
-    rf"([一-龥A-Za-z·]{{2,12}})\s*([+＋]\s*\d+(?:\.\d+)?\s*{METRIC_UNIT_RE})",
+    rf"([一-龥A-Za-z·]{{2,12}})\s*([+＋]?\s*\d+(?:\.\d+)?(?:\s*[-–~]\s*\d+(?:\.\d+)?)?\s*{METRIC_UNIT_RE})",
     re.I,
 )
 # "前缀：内容" lead-in, e.g. 总结：…/字数范围：…/卖点建议顺序：… — gets a red square + pink highlight.
