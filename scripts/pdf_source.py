@@ -154,9 +154,37 @@ def extract_page_tables(page: Any, page_index: int) -> list[dict[str, Any]]:
                 "row_count": table.row_count,
                 "column_count": table.col_count,
                 "rows": rows,
+                "column_spans": table_column_spans(table),
             }
         )
     return tables
+
+
+def table_column_spans(table: Any) -> list[list[float]]:
+    """Horizontal (x0, x1) extent of every column, taken from the header row.
+
+    Used to verify that the two fragments of a table split by a page break
+    share the same column geometry before they are merged back into one
+    source table.
+    """
+    try:
+        cells = list(table.header.cells)
+    except Exception:  # noqa: BLE001 - span probing must never break extraction
+        cells = []
+    if not cells:
+        try:
+            flat = [c for c in table.cells if c]
+        except Exception:  # noqa: BLE001
+            flat = []
+        if flat:
+            top = min(float(c[1]) for c in flat)
+            cells = [c for c in flat if abs(float(c[1]) - top) < 1.0]
+    spans: list[list[float]] = []
+    for cell in cells:
+        if not cell:
+            continue
+        spans.append([round(float(cell[0]), 1), round(float(cell[2]), 1)])
+    return spans
 
 
 def pdf_tables(pdf_path: Path) -> list[dict[str, Any]]:
@@ -167,10 +195,68 @@ def pdf_tables(pdf_path: Path) -> list[dict[str, Any]]:
     judgment against the page render.
     """
     tables: list[dict[str, Any]] = []
+    page_heights: dict[int, float] = {}
     with open_pdf(pdf_path) as doc:
         for page_index, page in enumerate(doc):
+            page_heights[page_index + 1] = float(page.rect.height)
             tables.extend(extract_page_tables(page, page_index))
-    return tables
+    return merge_cross_page_tables(tables, page_heights)
+
+
+def merge_cross_page_tables(
+    tables: list[dict[str, Any]], page_heights: dict[int, float]
+) -> list[dict[str, Any]]:
+    """Fold a table split by a page break back into one source table.
+
+    ``find_tables`` reports the two fragments of one logical table as two
+    tables: the first ends at the bottom of one page, the second starts flush
+    at the top of the next. They are the same table when page adjacency, a
+    near-zero top offset (<30pt), a bottom-anchored predecessor (>80pt above
+    the page bottom edge), equal column counts and matching column x-extents
+    (+/-3pt) all hold. The survivor records ``cross_page_merged`` and the
+    ``page_span`` it now covers so downstream consumers can see the fold.
+    """
+    merged: list[dict[str, Any]] = []
+    for table in tables:
+        if merged:
+            prev = merged[-1]
+            if _is_cross_page_continuation(prev, table, page_heights):
+                prev["rows"] = prev["rows"] + table["rows"]
+                prev["row_count"] = prev["row_count"] + table["row_count"]
+                prev["bbox"] = [
+                    prev["bbox"][0],
+                    prev["bbox"][1],
+                    table["bbox"][2],
+                    table["bbox"][3],
+                ]
+                span = prev.get("page_span") or [prev["page"]]
+                prev["page_span"] = [span[0], table["page"]]
+                prev["cross_page_merged"] = True
+                continue
+        merged.append(table)
+    return merged
+
+
+def _is_cross_page_continuation(
+    prev: dict[str, Any], cur: dict[str, Any], page_heights: dict[int, float]
+) -> bool:
+    if cur["page"] != prev["page"] + 1:
+        return False
+    if cur["bbox"][1] >= 30:
+        return False
+    height = page_heights.get(prev["page"])
+    if height is None or prev["bbox"][3] < height - 80:
+        return False
+    if cur["column_count"] != prev["column_count"]:
+        return False
+    prev_spans = prev.get("column_spans") or []
+    cur_spans = cur.get("column_spans") or []
+    if not prev_spans or len(prev_spans) != len(cur_spans):
+        return False
+    for (p0, p1), (c0, c1) in zip(prev_spans, cur_spans):
+        if abs(p0 - c0) > 3 or abs(p1 - c1) > 3:
+            return False
+    return True
 
 
 def pdf_table_count(pdf_path: Path) -> int:

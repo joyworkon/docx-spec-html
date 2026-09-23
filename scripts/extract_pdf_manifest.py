@@ -16,7 +16,15 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from pdf_source import clean_text, content_image_infos, extract_page_tables, is_pdf, iter_text_lines, open_pdf
+from pdf_source import (
+    clean_text,
+    content_image_infos,
+    extract_page_tables,
+    is_pdf,
+    iter_text_lines,
+    merge_cross_page_tables,
+    open_pdf,
+)
 
 
 def body_font_size(lines: list[dict[str, Any]]) -> float:
@@ -54,15 +62,29 @@ def extract_manifest(
         import fitz  # noqa: PLC0415 - guaranteed importable after open_pdf
 
         all_lines: list[dict[str, Any]] = []
+        page_heights: dict[int, float] = {}
         per_page: list[tuple[int, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]] = []
         for page_index, page in enumerate(doc):
             lines = list(iter_text_lines(page.get_text("dict")))
             infos = content_image_infos(doc, page)
             tables = extract_page_tables(page, page_index)
+            page_heights[page_index + 1] = float(page.rect.height)
             per_page.append((page_index, lines, infos, tables))
             all_lines.extend(lines)
 
         body_size = body_font_size(all_lines)
+
+        # ``find_tables`` reports a table split by a page break as two fragments:
+        # one ending at the page bottom, the next flush at the following page
+        # top. SKILL.md requires the pages to be treated as one logical table, so
+        # the fragments are folded back together before any block is emitted. The
+        # folded continuation fragment is skipped below and the surviving table
+        # keeps the merged rows plus ``cross_page_merged`` and ``page_span``, so
+        # the manifest and ``pdf_table_count`` agree on one table per logical
+        # table.
+        fragments = [table for _, _, _, tables in per_page for table in tables]
+        merged_tables = merge_cross_page_tables(fragments, page_heights)
+        surviving_table_ids = {id(table) for table in merged_tables}
 
         if render_pages:
             renders_dir = (images_dir or pdf_path.with_suffix("")) / "page-renders"
@@ -129,6 +151,10 @@ def extract_manifest(
                     }
                 )
             for table in tables:
+                if id(table) not in surviving_table_ids:
+                    # Continuation fragment already folded into the table
+                    # emitted on the previous page (``merge_cross_page_tables``).
+                    continue
                 table_count += 1
                 page_blocks.append(
                     {
