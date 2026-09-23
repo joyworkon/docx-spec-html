@@ -123,8 +123,10 @@ def normalize_for_match(value: str) -> str:
 
 
 # Bullet glyphs that PDF extraction reports as standalone text but that the
-# canonical components render as their own list markers.
-LIST_MARKER_RE = re.compile(r"[•◦▪●○➢▶]")
+# canonical components render as their own list markers. 👉/👈 are decorative
+# callout arrows that the generator strips from labels and numbered items
+# ("👉1. xxx" is numbered sibling 1), so they are list formatting, not copy.
+LIST_MARKER_RE = re.compile(r"[•◦▪●○➢▶👉👈]")
 # A long link wrapped across PDF lines: only the first piece keeps ``http://``.
 URL_FRAGMENT_RE = re.compile(r"^[A-Za-z0-9:/?=&%._~+\-]+$")
 
