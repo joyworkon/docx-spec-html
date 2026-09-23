@@ -7,6 +7,7 @@ Use this reference while mapping PDF/DOCX material into page hierarchy. The PDF-
 1. Source precedence
 2. Block-order preservation
 3. Hierarchy mapping
+   - 3.1 Block-pattern decision table (classify before choosing components)
 4. Text and media grouping
 5. Table reconstruction
 
@@ -59,6 +60,21 @@ Never pull later material forward to improve visual balance. Split or combine wr
 - Strip a leading callout arrow before classifying: `👉1. xxx：…` is numbered sibling `1.`, not a parent label. A run of numbered siblings is ONE list at ONE level for the whole run — never render the first sibling (the one carrying `👉`) as a pink/red parent while `2.` / `3.` sink to a deeper grey level. Sibling-level decisions apply uniformly: all module-internal rules → one `.source-list`; all top-level `前缀：内容` items → one `.red-list`.
 
 Wrap a label, its grey caption, and its images in the same `.text-block`. Indent the caption and images as children of that label.
+
+### 3.1 Block-pattern decision table (classify before choosing components)
+
+Before styling ANY block, classify it against this table and record the mapping per block. Never pick a list component by gut feel — the patterns below are the recurring JD-spec shapes, and misclassifying them is the most common hierarchy defect.
+
+| Source pattern (after stripping `👉`) | Component | Notes |
+| --- | --- | --- |
+| Standalone `效果数据：…` / `数据：…` / `数据效果：…` line whose value contains `%` / `％` / `PP` / `↑` / `↓` | `.metric-emphasis` green box | Never render as a bold list item, `.label-line`, or plain paragraph — including inside module bodies (not only card headers). Ranges like `+1.42-1.80%` still qualify. |
+| Top-level numbered `N. 前缀：内容` items (whole run) | ONE `.red-list`; number stays inline before the pink-highlighted prefix | The entire run shares one list at one level. Sub-bullets under one numbered item (e.g. under `2. 内容要求：`) stay grey-square `.source-list li.deep` (hollow square) nested inside that `<li>` — they do not demote the run. |
+| `👉`-prefixed (sub-)items under an open colon label such as `基础要求：` | `.source-list li.deep` — hollow square, deeper indent | The arrow only marks "this was a callout"; it does not change the item into a parent. Apply uniformly to every arrowed item in the run. |
+| One bordered / shaded source box (usually `👉 标签` + numbered items + `建议` + `平台规则`/`操作手册` together) | Exactly ONE white `.text-block` holding all of its children in source order | A source box boundary is a card boundary. Do NOT fragment one source box into several `.text-block`s, and do NOT merge separate source boxes into one. |
+| A row of tinted/coloured headers (e.g. pink `筛选面板`/`搜索商卡`/…) with one image under each header | One `.doc-table`: header row + one media row | This is a table in the source, not a loose image grid — never render as `.title-image-grid` / separate `.image-frame`s. |
+| Loose screen examples with no per-image header | `.detail-screen-grid` / `.sample-image` / `.half-image` per the usual image-grouping rules | Only use these when the source gives no header row. |
+
+Self-check before publishing: for every numbered run, every metric line, and every source box, ask "which decision-table row did I map this to?" If a block cannot be named, re-examine it against the PDF render instead of guessing.
 
 ## 4. Text and media grouping
 
