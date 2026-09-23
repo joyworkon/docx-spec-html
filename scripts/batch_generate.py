@@ -31,7 +31,14 @@ DEFAULT_FONT = SKILL_ROOT / "assets" / "fonts" / "JINGDONGLangZhengTi1-Bold.woff
 DEFAULT_H2C = SKILL_ROOT / "assets" / "vendor" / "html2canvas.min.js"
 DEFAULT_EDITOR = SKILL_ROOT / "assets" / "vendor" / "html-editor.html"
 GENERATOR_CSS_MARKER = "/* ===== Generic DOCX generator additions ===== */"
-SKILL_RELEASE = "2026.09.21-r21"
+SKILL_RELEASE = "2026.09.23-r22"
+
+# The visual editor moved online: the fixed 编辑 button on every generated page
+# opens this URL in a new tab (with a postMessage hand-off attempt plus a
+# best-effort local-folder fallback). assets/vendor/html-editor.html is kept as a
+# tiny self-redirecting stub so delivered pages stay fully self-contained and the
+# embedded-editor integrity check still has canonical bytes to compare against.
+EDITOR_URL = "https://24x4muqrqmqz0.joyapp.jd.com/"
 
 # MiSans body fonts. The canonical stylesheet references MiSans / MiSans-Normal /
 # MiSans-Bold / MiSans-Heavy; to keep a delivered page pixel-identical on machines
@@ -77,7 +84,14 @@ class TableBlock:
 
 def clean_text(value: str) -> str:
     value = re.sub(r"[\u200b-\u200f\ufeff]", "", value or "")
-    return re.sub(r"\s+", " ", value).strip()
+    value = re.sub(r"\s+", " ", value).strip()
+    # Callout emoji (👉/👈 and repeated variants) are decorative markers that
+    # PPT/PDF exports prepend to labels and numbered items. They are stripped,
+    # never rendered: "👉1. 标题结构：…" IS numbered sibling 1 and must stay at
+    # the same level as "2."/"3." — keeping the arrow would tempt models into
+    # demoting the following siblings one level deeper.
+    value = re.sub(r"^(?:[👉👈]\s*)+", "", value)
+    return value
 
 
 def esc(value: str) -> str:
@@ -1934,9 +1948,23 @@ def download_runtime() -> str:
 
 
 def editor_runtime() -> str:
-    """A floating 「编辑」 button that opens the bundled visual HTML editor in a NEW
-    window, pre-loaded with the current page. The whole editor is embedded as inert
-    base64 so the page stays self-contained / offline (no second file needed)."""
+    """A floating 「编辑」 button that jumps to the online visual editor
+    (EDITOR_URL) in a new tab.
+
+    Hand-off strategy, in order:
+    1. Auto-import: postMessage the current page's HTML to the opened editor.
+       The message (source:'docx-spec-html-editor', name, html) is sent
+       immediately and once again after 1.5s; a site that listens for it can
+       import the document directly. On sites without a listener this is a
+       harmless no-op.
+    2. Fallback: when the page itself is opened from file://, also open the
+       folder containing it so the user can drag the HTML into the editor.
+    3. The button label flashes a hint for a few seconds either way.
+
+    The bundled assets/vendor/html-editor.html (now a tiny self-redirecting
+    stub) is still embedded as inert base64 so the page stays self-contained
+    and the editor-payload integrity check keeps canonical bytes to compare.
+    """
     if not DEFAULT_EDITOR.exists():
         return ""
     editor_bytes = DEFAULT_EDITOR.read_bytes()
@@ -1947,23 +1975,25 @@ def editor_runtime() -> str:
         "var srcEl=document.getElementById('editor-src-b64');"
         "if(!b||!srcEl)return;"
         "b.addEventListener('click',function(){"
-        # Clean snapshot of the current poster: drop the floating controls + scripts.
+        f"var url={EDITOR_URL!r};"
+        "var w=window.open(url,'_blank');"
+        "if(!w){alert('请允许弹出窗口后重试');return;}"
+        # 1) Clean snapshot of the current poster: drop the floating controls + scripts.
+        "try{"
         "var root=document.documentElement.cloneNode(true);"
         "root.querySelectorAll('[data-html2canvas-ignore],script').forEach(function(n){n.remove();});"
         "var poster='<!doctype html>\\n'+root.outerHTML;"
-        # Decode the embedded editor (UTF-8 safe), then run it in a new window with
-        # the current page handed off via window.__PRELOAD_HTML__.
-        "var bin=atob(srcEl.textContent.trim());var bytes=new Uint8Array(bin.length);"
-        "for(var i=0;i<bin.length;i++){bytes[i]=bin.charCodeAt(i);}"
-        "var editorHtml=new TextDecoder('utf-8').decode(bytes);"
         "var name=(document.title||'页面')+'.html';"
-        "var boot='<script>window.__PRELOAD_NAME__='+JSON.stringify(name)+';window.__PRELOAD_HTML__='+JSON.stringify(poster)+';<\\/script>';"
-        # Inject boot inside <head> so the doctype stays first (no quirks mode).
-        "var out=editorHtml.replace(/<head([^>]*)>/i,function(m){return m+boot;});"
-        "if(out===editorHtml){out=boot+editorHtml;}"
-        "var w=window.open('','_blank');"
-        "if(!w){alert('请允许弹出窗口后重试');return;}"
-        "w.document.open();w.document.write(out);w.document.close();"
+        "var payload={source:'docx-spec-html-editor',name:name,html:poster};"
+        "w.postMessage(payload,'*');"
+        "setTimeout(function(){try{w.postMessage(payload,'*');}catch(e){}},1500);"
+        "}catch(e){console.warn('editor hand-off failed',e);}"
+        # 2) file:// pages: also open the folder holding this HTML for drag-and-drop.
+        "try{if(location.protocol==='file:'&&location.href.indexOf('/')>-1){"
+        "window.open(location.href.slice(0,location.href.lastIndexOf('/')+1),'_blank');}}catch(e){}"
+        # 3) Transient hint on the button.
+        "var t=b.textContent;b.textContent='已打开在线编辑器，可将本页 HTML 拖入网站';"
+        "setTimeout(function(){b.textContent=t;},4000);"
         "});})();"
     )
     return (
