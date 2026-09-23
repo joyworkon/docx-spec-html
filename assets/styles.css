@@ -1485,11 +1485,14 @@ body { background: #737373; }
   text-align-last: center;
 }
 /* Text rows of a before/after compare are table body cells too: same light-grey
-   fill, corner radius and inset as the rounded-table body system. */
+   fill, corner radius and inset as the rounded-table body system. Columns are
+   grid-stretched to equal height; let each text cell grow so the 优化前/优化后
+   body cells line up row by row instead of ending ragged. */
 .poster.auto-doc .ba-col .ba-text {
   background: var(--table-body-bg);
   border-radius: var(--table-cell-radius);
   padding: 18px 24px;
+  flex: 1 0 auto;
 }
 
 /* Three-column spec table: 主图 narrowest, 内容要求 ~2x, 示例 half width */
