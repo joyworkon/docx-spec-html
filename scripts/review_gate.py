@@ -24,6 +24,12 @@ BODY_CARE_MODULES = [
     "属性",
 ]
 
+# Conversion-metric arrows must stay INLINE svg: html2canvas drops a CSS
+# background or an <img> from the downloaded PNG, so ``class="metric-arrow"`` on
+# anything but an ``<svg>`` is a broken delivery. batch_generate.METRIC_ARROW_SVG
+# emits exactly ``<svg class="metric-arrow" …>``.
+METRIC_ARROW_INLINE_SVG_RE = re.compile(r'<svg\b[^>]*\bclass="[^"]*\bmetric-arrow\b[^"]*"', re.I)
+
 
 def body_care_checks(html: str, report: dict) -> dict[str, bool]:
     h2_texts = [
@@ -125,6 +131,16 @@ def review(source: Path, html_path: Path, profile: str | None = "auto") -> dict:
         )
     except (ValueError, TypeError):
         embedded_editor_matches_vendor = False
+    # Conversion metrics render their arrow as inline SVG (``METRIC_ARROW_SVG``
+    # in batch_generate.py). That contract only binds a page which actually
+    # carries metrics: a document without metric lines renders ornamental inline
+    # SVG only, so demanding ``class="metric-arrow"`` there rejects a correct
+    # page. Gate the check on the metrics present in the page or expected from
+    # the source instead of on the mere presence of any ``<svg>``.
+    expects_metric_arrow = bool(
+        count_class(html, "metric-emphasis") or source_report.get("expected_metric_count")
+    )
+    metric_arrow_is_inline_svg = bool(METRIC_ARROW_INLINE_SVG_RE.search(html))
     generic_checks = {
         "strict_source_validation": bool(source_report.get("passed")),
         "release_marker_present": bool(
@@ -170,7 +186,7 @@ def review(source: Path, html_path: Path, profile: str | None = "auto") -> dict:
                 flags=re.S,
             )
         ),
-        "inline_svg_contract": "<svg" in html and "class=\"metric-arrow\"" in html,
+        "inline_svg_contract": metric_arrow_is_inline_svg or not expects_metric_arrow,
     }
     # The body-care profile checks hardcode golden counts of one specific DOCX
     # (50 image occurrences, 11 tables, …). A PDF source counts differently
