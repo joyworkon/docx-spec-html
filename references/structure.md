@@ -56,6 +56,7 @@ Never pull later material forward to improve visual balance. Split or combine wr
 - Explanatory children under a bracket parent such as `【主图】` → `.sublevel` items with grey squares, no pink marker, and the same group/text indentation as `.source-list` children.
 - Keep a bracket parent and its `.sublevel` children as consecutive direct `<li>` siblings in one `.red-list`. Never create a nested `.red-list`; it compounds indentation and removes the parent-to-first-child spacing.
 - Consecutive numbered siblings (`1、` / `2、` / `3、`) → one shared parent module, identical weight and grey-square hierarchy even when only one item contains a colon. However, a numbered item whose body is itself a top-level `前缀：内容` pair (e.g. `1. 标题结构：…`) belongs to `.red-list` like any other top-level colon item — the leading number stays inside the pink prefix and does not demote the item to `.source-list`.
+- Strip a leading callout arrow before classifying: `👉1. xxx：…` is numbered sibling `1.`, not a parent label. A run of numbered siblings is ONE list at ONE level for the whole run — never render the first sibling (the one carrying `👉`) as a pink/red parent while `2.` / `3.` sink to a deeper grey level. Sibling-level decisions apply uniformly: all module-internal rules → one `.source-list`; all top-level `前缀：内容` items → one `.red-list`.
 
 Wrap a label, its grey caption, and its images in the same `.text-block`. Indent the caption and images as children of that label.
 
