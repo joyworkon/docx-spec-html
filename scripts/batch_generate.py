@@ -31,7 +31,7 @@ DEFAULT_FONT = SKILL_ROOT / "assets" / "fonts" / "JINGDONGLangZhengTi1-Bold.woff
 DEFAULT_H2C = SKILL_ROOT / "assets" / "vendor" / "html2canvas.min.js"
 DEFAULT_EDITOR = SKILL_ROOT / "assets" / "vendor" / "html-editor.html"
 GENERATOR_CSS_MARKER = "/* ===== Generic DOCX generator additions ===== */"
-SKILL_RELEASE = "2026.09.23-r23"
+SKILL_RELEASE = "2026.09.24-r24"
 
 # The visual editor moved online: the fixed 编辑 button on every generated page
 # opens this URL in a new tab (with a postMessage hand-off attempt plus a
@@ -40,15 +40,21 @@ SKILL_RELEASE = "2026.09.23-r23"
 # embedded-editor integrity check still has canonical bytes to compare against.
 EDITOR_URL = "https://24x4muqrqmqz0.joyapp.jd.com/"
 
-# MiSans body fonts. The canonical stylesheet references MiSans / MiSans-Normal /
-# MiSans-Bold / MiSans-Heavy; to keep a delivered page pixel-identical on machines
-# without MiSans installed, the generator subsets the three used weights to the
-# characters the page actually renders and embeds them as data-URI @font-face
-# aliases. Drop the official MiSans TTFs into assets/fonts/misans-src/ (see
+# MiSans body fonts. Exactly two weights are part of the design system:
+# MiSans-Normal (400) for body copy and MiSans-Bold (700) for every emphasis
+# role (bracket titles, INTRODUCTION, red/grey square headings, the green metric
+# box, table headers, buttons, outbound link text). Each weight is embedded ONCE
+# on the "MiSans" family so the browser resolves the face from font-weight; a
+# second per-weight alias face would duplicate ~0.5 MB of identical glyphs.
+# Drop the official MiSans TTFs into assets/fonts/misans-src/ (see
 # assets/fonts/README.md); when the sources or fontTools are unavailable the
 # generator silently falls back to plain name references.
+#
+# This draft path covers the page's own characters only. Production pages must
+# still run scripts/optimize_page_assets.py, which re-embeds both weights with
+# GB2312 level-1 coverage so text a reviewer types later stays in MiSans.
 MISANS_SRC_DIR = SKILL_ROOT / "assets" / "fonts" / "misans-src"
-MISANS_WEIGHTS = {"Normal": 400, "Bold": 700, "Heavy": 900}
+MISANS_WEIGHTS = {"Normal": 400, "Bold": 700}
 
 
 # Editorial boilerplate removed from every source: the 【官方建议】 title marker,
@@ -112,28 +118,19 @@ def justify_word_char(char: str) -> bool:
 
 
 def inject_justify_zwsp(text: str) -> str:
-    """Insert U+200B between characters so Blink can expand justification.
+    """Strip stray U+200B; never inject it.
 
-    Blink's text-align: justify only expands at break opportunities (spaces);
-    mixed CJK/Latin lines without spaces stay ragged. Zero-width spaces give
-    the engine expansion points without visible width on the last line.
+    An earlier revision inserted a zero-width space between every pair of CJK
+    characters to force Blink to expand justified lines. Blink does not need
+    it — a measured headless-Chrome comparison shows pure-CJK and mixed
+    CJK/Latin paragraphs justify to the full column width with
+    ``text-align: justify`` alone — and the injected characters made every
+    delivered page hostile to downstream editing: copy, search, spell-check and
+    find-and-replace all break when an invisible character sits between every
+    glyph. The function is kept (and now only removes stray ZWSP) so existing
+    call sites stay intact.
     """
-    out: list[str] = []
-    for index, char in enumerate(text):
-        out.append(char)
-        if index + 1 >= len(text):
-            continue
-        nxt = text[index + 1]
-        if char == JUSTIFY_ZWSP or nxt == JUSTIFY_ZWSP:
-            continue
-        if char in JUSTIFY_OPEN or nxt in JUSTIFY_CLOSE:
-            continue
-        if char == " " or nxt == " ":
-            continue
-        if justify_word_char(char) and justify_word_char(nxt):
-            continue
-        out.append(JUSTIFY_ZWSP)
-    return "".join(out)
+    return text.replace(JUSTIFY_ZWSP, "")
 
 
 def justify_visible_len(fragment: str) -> int:
@@ -155,8 +152,9 @@ def justify_long_text(fragment: str) -> str:
     """Justify body text longer than 10 visible characters.
 
     List items get .justify-li; .label-rest paragraphs and table cells get
-    .justify-txt; qualifying nodes also receive ZWSP injection. Shorter text
-    keeps its existing alignment (e.g. centred table cells, .row-head).
+    .justify-txt. Justification is pure CSS — no zero-width spaces are injected,
+    so the delivered text stays editable and searchable. Shorter text keeps its
+    existing alignment (e.g. centred table cells, .row-head).
     """
 
     def process_inner(inner: str) -> str:
@@ -327,15 +325,15 @@ def _page_visible_characters(page_html: str) -> str:
 
 
 def misans_font_css(page_html: str) -> str:
-    """Subset + embed the MiSans weights the canonical stylesheet references.
+    """Subset + embed the two MiSans weights the canonical stylesheet uses.
 
-    Each available ``assets/fonts/misans-src/MiSans-{Normal,Bold,Heavy}.ttf`` is
+    ``assets/fonts/misans-src/MiSans-Normal.ttf`` and ``MiSans-Bold.ttf`` are
     subsetted to the page's visible characters and emitted as woff2 data-URI
-    @font-face rules under BOTH the shared family (``MiSans`` at the weight's
-    numeric value) and the per-weight alias (``MiSans-Bold`` etc.) the CSS
-    references, so every existing font-family declaration resolves to embedded
-    fonts. Requires fontTools (+ brotli for woff2); returns "" when the source
-    TTFs or fontTools are unavailable so generation keeps working offline.
+    @font-face rules on the ``MiSans`` family at weights 400 and 700. The
+    stylesheet asks for ``MiSans`` plus an explicit ``font-weight``, so one copy
+    per weight is enough. Requires fontTools (+ brotli for woff2); returns ""
+    when the source TTFs or fontTools are unavailable so generation keeps
+    working offline.
     """
     if not MISANS_SRC_DIR.is_dir():
         return ""
@@ -373,13 +371,12 @@ def misans_font_css(page_html: str) -> str:
         except Exception:  # noqa: BLE001 - font embedding must never break generation
             continue
         uri = f"data:font/woff2;base64,{blob}"
-        for family in ("MiSans", f"MiSans-{name}"):
-            rules.append(
-                "@font-face {"
-                f'font-family: "{family}"; font-weight: {weight}; font-style: normal; '
-                f'font-display: block; src: url("{uri}") format("woff2");'
-                "}"
-            )
+        rules.append(
+            "@font-face {"
+            f'font-family: "MiSans"; font-weight: {weight}; font-style: normal; '
+            f'font-display: block; src: url("{uri}") format("woff2");'
+            "}"
+        )
     return "\n".join(rules)
 
 EDITABLE_RUNTIME = """

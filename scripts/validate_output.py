@@ -267,7 +267,7 @@ def structural_checks(
     sublevel_indent_present = all(
         token in html_text
         for token in (
-            "--nested-group-indent: 42px",
+            "--nested-group-indent: 28px",
             "--nested-text-offset: 25px",
             "margin-left: var(--nested-group-indent)",
             "padding-left: var(--nested-text-offset)",

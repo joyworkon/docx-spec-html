@@ -35,7 +35,12 @@ html, body {
   --table-cell-gap: 8px;
   --table-media-padding: 12px;
   --tag-example-media-height: 480px;
-  --nested-group-indent: 42px;
+  /* One nesting step == about one character at the 28px production body size.
+     Every marker level (red square > grey square > hollow square > round dot)
+     moves in by exactly this much and never more. */
+  --level-indent: 28px;
+  --marker-gutter: 38px;
+  --nested-group-indent: 28px;
   --nested-text-offset: 25px;
   --video-header-height: 72px;
 }
@@ -103,7 +108,7 @@ html, body {
   background: #fff;
   position: relative;
   z-index: 2;
-  font-family: "MiSans-Normal", "MiSans", "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-family: var(--font-normal);
 }
 .card:last-child { margin-bottom: 46px; }
 .intro-card { min-height: 0; }
@@ -122,7 +127,7 @@ html, body {
 .section-head h2 {
   margin: 0;
   color: #ff2b22;
-  font-family: "MiSans-Bold", "MiSans", "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-family: var(--font-bold);
   font-size: 47px;
   line-height: 1;
   font-weight: 700;
@@ -136,9 +141,9 @@ html, body {
 .spec-head .en-label { margin-left: auto; }
 .chapter {
   color: #ff2b22;
-  font-family: "MiSans-Heavy", "MiSans", sans-serif;
+  font-family: var(--font-bold);
   font-size: 17px;
-  font-weight: 900;
+  font-weight: 700;
   line-height: 1;
 }
 .en-label {
@@ -1562,7 +1567,7 @@ body { background: #737373; }
   border-radius: 10px;
   background: rgba(17, 17, 17, 0.88);
   color: #fff;
-  font-family: "MiSans", "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-family: var(--font-bold);
 }
 .edit-toolbar button {
   border: 0;
@@ -1585,7 +1590,7 @@ body { background: #737373; }
   padding: 12px 18px;
   background: #ff2b22;
   color: #fff;
-  font-family: "MiSans", "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-family: var(--font-bold);
   font-size: 14px;
   font-weight: 600;
   line-height: 1;
@@ -1603,7 +1608,7 @@ body { background: #737373; }
   padding: 12px 18px;
   background: #1f2329;
   color: #fff;
-  font-family: "MiSans", "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-family: var(--font-bold);
   font-size: 14px;
   font-weight: 600;
   line-height: 1;
@@ -1732,10 +1737,10 @@ body.editing [contenteditable="true"] {
 .poster.auto-doc .red-list li,
 .poster.auto-doc .label-line,
 .poster.auto-doc .caption-line { padding-left: 38px; }
-.poster.auto-doc .source-list { margin-left: 42px; }
-.poster.auto-doc .sub-dot { padding-left: 42px; }
+.poster.auto-doc .source-list { margin-left: var(--level-indent); }
+.poster.auto-doc .sub-dot { padding-left: var(--marker-gutter); }
 .poster.auto-doc .caption-line.indent,
-.poster.auto-doc .image-holder.indent { margin-left: 42px; }
+.poster.auto-doc .image-holder.indent { margin-left: var(--level-indent); }
 
 /* 4) Module spacing scaled */
 .poster.auto-doc .gray-panel > * + * { margin-top: 27px; }
@@ -1772,4 +1777,306 @@ body.editing [contenteditable="true"] {
 .poster.auto-doc .ba-text.justify-txt {
   text-align: justify;
   text-align-last: left;
+}
+
+/* ============================================================================
+   §A. Canonical typography — only two MiSans weights ship with a page.
+   ----------------------------------------------------------------------------
+   MiSans-Normal carries every piece of body copy. MiSans-Bold carries every
+   emphasis role the spec design defines:
+     · { 标题 } bracket card titles and the 01/02 chapter number
+     · INTRODUCTION / OPERATION STANDARDS interface labels
+     · the heading run of a red-square (L1) or grey-square (L2) item — that
+       is its <b> / .label-text / .label-line / .caption-line label, NOT the
+       whole <li>: the explanatory remainder (.label-rest) stays Normal, which
+       is how the golden reference renders 【主图】+ running text
+     · the overview .lead summary
+     · green metric box copy
+     · every table header cell (th / .ba-head / .video-case-head / .row-head)
+     · every button label (.link-btn, 点击播放, 编辑, 下载整页图片)
+     · every outbound link text
+   Hollow-square (level 3) and round-dot (level 4) items are content, not
+   headings, so they stay Normal. Only 400 and 700 exist, so the previous
+   600 / 800 / 900 declarations all resolve onto 700 — verified element by
+   element against the golden reference: every emphasis element kept its
+   emphasis and no body copy gained any. scripts/optimize_page_assets.py embeds both
+   weights as woff2 subsets, so a delivered page renders and stays editable on
+   machines without MiSans installed.
+   ============================================================================ */
+html {
+  /* "MiSans" first: scripts/optimize_page_assets.py embeds ONE woff2 subset per
+     weight on that family (400 = MiSans-Normal, 700 = MiSans-Bold), so the
+     browser resolves the right face from font-weight without shipping the same
+     glyphs twice. The per-weight aliases stay in the stack for machines that
+     have the individual faces installed but no MiSans family. */
+  --font-normal: "MiSans", "MiSans-Normal", "Microsoft YaHei", "PingFang SC", sans-serif;
+  --font-bold: "MiSans", "MiSans-Bold", "Microsoft YaHei", "PingFang SC", sans-serif;
+}
+html, body { font-family: var(--font-normal); }
+.poster,
+.poster.auto-doc .card,
+.poster.auto-doc .gray-panel,
+.poster.auto-doc .text-block,
+.poster.auto-doc p,
+.poster.auto-doc td,
+.poster.auto-doc .label-rest,
+.poster.auto-doc .plain-block,
+.poster.auto-doc .ba-text,
+.poster.auto-doc .example-line,
+.poster.auto-doc .spec-cell:not(.row-head) {
+  font-family: var(--font-normal);
+  font-weight: 400;
+}
+
+/* Emphasis roles — MiSans-Bold, weight 700. */
+.poster.auto-doc .section-head h2,
+.poster.auto-doc .chapter,
+.poster.auto-doc .en-label,
+.poster.auto-doc .en-label strong,
+.poster.auto-doc .hero-mark,
+.poster.auto-doc .updated,
+.poster.auto-doc .lead,
+.poster.auto-doc .red-list b,
+.poster.auto-doc .red-list > li > b,
+.poster.auto-doc .label-line,
+.poster.auto-doc .label-text,
+.poster.auto-doc .label-plain,
+.poster.auto-doc .source-list b,
+.poster.auto-doc .source-list > li > b,
+.poster.auto-doc .caption-line,
+.poster.auto-doc .example-block h3,
+.poster.auto-doc .metric-emphasis,
+.poster.auto-doc .metric-emphasis .metric-text,
+.poster.auto-doc .metric-emphasis .metric-value,
+.poster.auto-doc .metric-source-label,
+.poster.auto-doc .metric-separator,
+.poster.auto-doc th,
+.poster.auto-doc .row-head,
+.poster.auto-doc .spec-cell.row-head,
+.poster.auto-doc .spec-head .spec-cell,
+.poster.auto-doc .ba-head,
+.poster.auto-doc .video-case-head,
+.poster.auto-doc .material-table .mt-type,
+.poster.auto-doc .link-btn,
+.poster.auto-doc .video-demo .vd-text,
+.poster.auto-doc a[href],
+.poster.auto-doc .module-layout .ml-block,
+.edit-page-btn,
+.dl-page-btn,
+.edit-toolbar,
+.edit-toolbar button {
+  font-family: var(--font-bold);
+  font-weight: 700;
+}
+
+/* Content that hangs under a heading marker stays Normal even though its
+   parent <li> is a heading. Keep these after the emphasis block. */
+.poster.auto-doc .red-list li > p,
+.poster.auto-doc .red-list li .label-rest,
+.poster.auto-doc .source-list li.deep,
+.poster.auto-doc .source-list li.dot,
+.poster.auto-doc li.deep,
+.poster.auto-doc li.dot,
+.poster.auto-doc .label-rest {
+  font-family: var(--font-normal);
+  font-weight: 400;
+}
+
+/* ============================================================================
+   §B. Marker hierarchy ladder — red square > grey square > hollow square >
+   round dot. Levels are never skipped: text under a red square uses a grey
+   square, text under a grey square uses a hollow square, text under a hollow
+   square uses the round dot. Each level steps in by exactly --level-indent
+   (one character), never more.
+   ============================================================================ */
+
+/* L1 — red square. Top of the ladder, no extra indent. */
+.poster.auto-doc .red-list { margin-left: 0; }
+.poster.auto-doc .red-list > li {
+  position: relative;
+  margin-left: 0;
+  padding-left: var(--marker-gutter);
+}
+.poster.auto-doc .label-line { padding-left: var(--marker-gutter); }
+
+/* L2 — solid grey square, one step in. */
+.poster.auto-doc .source-list { margin-left: var(--level-indent); }
+.poster.auto-doc .source-list > li {
+  position: relative;
+  padding-left: var(--marker-gutter);
+}
+.poster.auto-doc .red-list > li.sublevel {
+  margin-left: var(--level-indent);
+  padding-left: var(--marker-gutter);
+}
+.poster.auto-doc .caption-line { padding-left: var(--marker-gutter); }
+.poster.auto-doc .caption-line.indent,
+.poster.auto-doc .image-holder.indent { margin-left: var(--level-indent); }
+.poster.auto-doc .subtitle-table-group .nested-table-group { margin-left: var(--level-indent); }
+.poster.auto-doc .red-list li > p:not(.sub-dot) { margin-left: var(--level-indent); padding-left: var(--marker-gutter); }
+.poster.auto-doc .sub-dot { padding-left: var(--marker-gutter); }
+
+/* L3 — hollow grey square, two steps in. */
+.poster.auto-doc li.deep,
+.poster.auto-doc .source-list li.deep {
+  position: relative;
+  margin-left: var(--level-indent);
+  padding-left: var(--marker-gutter);
+}
+.poster.auto-doc li.deep::before,
+.poster.auto-doc .source-list li.deep::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 13px;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  box-sizing: border-box;
+  background: transparent;
+  border: 2px solid #c9c9c9;
+}
+
+/* L4 — plain round dot (the system bullet), three steps in. Only ever used
+   under a hollow square. */
+.poster.auto-doc li.dot,
+.poster.auto-doc .source-list li.dot,
+.poster.auto-doc ul.dot-list > li {
+  position: relative;
+  list-style: none;
+  margin-left: var(--level-indent);
+  padding-left: var(--marker-gutter);
+}
+.poster.auto-doc ul.dot-list { margin: 0; padding: 0; margin-left: var(--level-indent); }
+.poster.auto-doc li.dot::before,
+.poster.auto-doc .source-list li.dot::before,
+.poster.auto-doc ul.dot-list > li::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 16px;
+  width: 11px;
+  height: 11px;
+  border: 0;
+  border-radius: 50%;
+  background: #8a8a8a;
+}
+
+/* ---------------------------------------------------------------------------
+   Uniform one-character step, in BOTH legal DOM shapes.
+
+   Shape 1 — flat siblings in one list (the canonical shape for a bracket
+   parent and its children: "never create a nested .red-list"). The rung class
+   carries the cumulative indent, because the list itself supplies none.
+
+   Shape 2 — a real nested <ul> inside an <li> (used for sub-bullets under one
+   numbered item). Here the parent's own marker gutter already pushes the
+   nested list's content in by --marker-gutter, so a nested list cancels that
+   gutter and adds exactly one --level-indent; its items add nothing further.
+   Without this cancellation each nesting level cost gutter + indent + indent
+   (measured 94px instead of 28px in Chrome), which is the "indented far too
+   deep / levels look inconsistent" defect.
+   --------------------------------------------------------------------------- */
+
+/* Shape 1: flat siblings inside one .red-list (L1 host). */
+.poster.auto-doc .red-list > li.sublevel { margin-left: var(--level-indent); }
+.poster.auto-doc .red-list > li.deep { margin-left: calc(2 * var(--level-indent)); }
+.poster.auto-doc .red-list > li.dot { margin-left: calc(3 * var(--level-indent)); }
+
+/* Shape 1: flat siblings inside one .source-list (already one step in). */
+.poster.auto-doc .source-list > li.deep { margin-left: var(--level-indent); }
+.poster.auto-doc .source-list > li.dot { margin-left: calc(2 * var(--level-indent)); }
+
+/* Shape 2: a nested list is exactly one step below its parent item. */
+.poster.auto-doc li > .source-list,
+.poster.auto-doc li > .dot-list,
+.poster.auto-doc li > ul.source-list,
+.poster.auto-doc li > ul.dot-list {
+  margin-left: calc(var(--level-indent) - var(--marker-gutter));
+  padding-left: 0;
+}
+.poster.auto-doc li > .source-list > li,
+.poster.auto-doc li > .source-list > li.sublevel,
+.poster.auto-doc li > .source-list > li.deep,
+.poster.auto-doc li > .source-list > li.dot,
+.poster.auto-doc li > .dot-list > li,
+.poster.auto-doc li > .dot-list > li.dot { margin-left: 0; }
+
+/* A paragraph hanging under a list item is one step in, gutter cancelled the
+   same way, so it lines up with a same-level marked child. */
+.poster.auto-doc .red-list li > p:not(.sub-dot),
+.poster.auto-doc .source-list li > p:not(.sub-dot) {
+  margin-left: calc(var(--level-indent) - var(--marker-gutter));
+  padding-left: var(--marker-gutter);
+}
+
+/* ============================================================================
+   §C. 优化前 / 优化后 compare — body copy is a table body cell, never bare
+   text dropped under the two headers.
+   ============================================================================ */
+.poster.auto-doc .ba-col > p,
+.poster.auto-doc .ba-compare > p,
+.poster.auto-doc .ba-col .ba-text,
+.poster.auto-doc .ba-compare.is-row-grid > .ba-text {
+  background: var(--table-body-bg);
+  border-radius: var(--table-cell-radius);
+  padding: 18px 24px;
+  margin: 0;
+  box-sizing: border-box;
+  flex: 1 0 auto;
+  text-align: center;
+  text-align-last: center;
+}
+
+/* ============================================================================
+   §D. 点击播放 card geometry — a play card always matches the table cell or
+   compare column it sits next to (same width, same height, same radius).
+   ============================================================================ */
+.poster.auto-doc .doc-table td .video-demo,
+.poster.auto-doc .doc-table th .video-demo,
+.poster.auto-doc .ba-col .video-demo,
+.poster.auto-doc .spec-cell .video-demo,
+.poster.auto-doc .compare-matrix td .video-demo,
+.poster.auto-doc .video-case-media .video-demo {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: var(--table-media-padding);
+  border-radius: var(--table-cell-radius);
+  box-sizing: border-box;
+  align-self: stretch;
+}
+/* The cell that holds a play card is a media cell: no extra inner padding, so
+   the card's own box is exactly the cell box. */
+.poster.auto-doc .doc-table td.table-media-cell:has(> .video-demo),
+.poster.auto-doc .doc-table td.video-cell {
+  padding: 0;
+  background: transparent;
+}
+/* A play card standing beside a table header keeps the header's height. */
+.poster.auto-doc .video-case-media .video-demo,
+.poster.auto-doc .video-demo.match-head {
+  height: var(--video-header-height);
+  min-height: var(--video-header-height);
+}
+/* A play card standing beside a table BODY cell stretches with the row.
+   Chrome no longer resolves a percentage height (or min-height) on a child of
+   a <td> — the cell's height is indefinite — which is why a 点击播放 card kept
+   rendering at its own 76px content height inside a 142px row and looked
+   mismatched next to the neighbouring 内容结构 cell. Giving the host table a
+   token `height: 1px` makes every row height definite (the table still grows
+   to its content), so `td { height: 100% }` and the card's own `height: 100%`
+   both resolve and the card box becomes exactly the cell box. Scoped with
+   :has() so only tables that actually carry a play card are affected. */
+.poster.auto-doc .doc-table:has(.video-demo),
+.poster.auto-doc .compare-matrix:has(.video-demo),
+.poster.auto-doc .spec-table:has(.video-demo) { height: 1px; }
+.poster.auto-doc .doc-table:has(.video-demo) tr > td,
+.poster.auto-doc .compare-matrix:has(.video-demo) tr > td,
+.poster.auto-doc .spec-table:has(.video-demo) tr > td { height: 100%; }
+.poster.auto-doc .video-demo.match-cell {
+  height: 100%;
+  min-height: 0;
+  align-self: stretch;
 }

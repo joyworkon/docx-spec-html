@@ -30,6 +30,18 @@ BODY_CARE_MODULES = [
 # emits exactly ``<svg class="metric-arrow" …>``.
 METRIC_ARROW_INLINE_SVG_RE = re.compile(r'<svg\b[^>]*\bclass="[^"]*\bmetric-arrow\b[^"]*"', re.I)
 
+# A delivered page has to survive a third-party HTML editor. Nothing in the
+# markup is locked — it is plain <p>/<li>/<td> text — but a 25–55 MB single file
+# is what actually defeats those editors, and a zero-width space between every
+# CJK character defeats copy/search/replace. Both are now generator-side
+# failures instead of "known quirks".
+EDITOR_SIZE_BUDGET_BYTES = 24_000_000
+MISANS_FACE_RE = re.compile(
+    r'@font-face\s*\{[^}]*font-family:\s*"MiSans"[^}]*font-weight:\s*(?P<weight>400|700)'
+    r'[^}]*url\("data:font/woff2;base64,',
+    re.I | re.S,
+)
+
 
 def body_care_checks(html: str, report: dict) -> dict[str, bool]:
     h2_texts = [
@@ -162,9 +174,59 @@ def review(source: Path, html_path: Path, profile: str | None = "auto") -> dict:
                 "--table-cell-gap: 8px",
                 "--table-media-padding: 12px",
                 "--tag-example-media-height: 480px",
-                "--nested-group-indent: 42px",
+                "--level-indent: 28px",
+                "--marker-gutter: 38px",
+                "--nested-group-indent: 28px",
                 "--nested-text-offset: 25px",
                 "--video-header-height: 72px",
+            )
+        ),
+        # Only two MiSans weights ship, embedded once each as a woff2 subset on
+        # the MiSans family. Both must be present or the receiver silently falls
+        # back to a system font.
+        "misans_normal_and_bold_embedded": {
+            match.group("weight") for match in MISANS_FACE_RE.finditer(html)
+        } == {"400", "700"},
+        "emphasis_uses_misans_bold": all(
+            token in html
+            for token in (
+                '--font-normal: "MiSans", "MiSans-Normal"',
+                '--font-bold: "MiSans", "MiSans-Bold"',
+                "font-family: var(--font-bold);",
+                "font-family: var(--font-normal);",
+            )
+        ),
+        "no_zero_width_space_pollution": "\u200b" not in html,
+        "page_size_within_editor_budget": html_path.stat().st_size <= EDITOR_SIZE_BUDGET_BYTES,
+        # The four-rung marker ladder and its one-character steps live in the
+        # canonical stylesheet; a page that lost them cannot render hierarchy.
+        "marker_ladder_css_present": all(
+            bool(re.search(pattern, html, flags=re.S))
+            for pattern in (
+                r"\.poster\.auto-doc\s+li\.deep::before,[^{}]*\{[^}]*border:\s*2px solid #c9c9c9",
+                r"\.poster\.auto-doc\s+li\.dot::before,[^{}]*\{[^}]*border-radius:\s*50%",
+                r"\.poster\.auto-doc\s+\.source-list\s*\{\s*margin-left:\s*var\(--level-indent\)",
+                r"\.poster\.auto-doc\s+li\.deep,[^{}]*\{[^}]*margin-left:\s*var\(--level-indent\)",
+                # A nested list cancels its parent's marker gutter so one nesting
+                # level costs exactly one --level-indent (measured 28px), not
+                # gutter + indent + indent (measured 94px).
+                r"margin-left:\s*calc\(var\(--level-indent\)\s*-\s*var\(--marker-gutter\)\)",
+                r"\.poster\.auto-doc\s+\.red-list\s*>\s*li\.deep\s*\{\s*margin-left:\s*calc\(2 \* var\(--level-indent\)\)",
+                r"\.poster\.auto-doc\s+\.red-list\s*>\s*li\.dot\s*\{\s*margin-left:\s*calc\(3 \* var\(--level-indent\)\)",
+            )
+        ),
+        # 优化前/优化后 body copy is a table body cell, and a 点击播放 card
+        # inherits its neighbour cell's box.
+        "compare_text_and_play_card_geometry": all(
+            bool(re.search(pattern, html, flags=re.S))
+            for pattern in (
+                r"\.poster\.auto-doc\s+\.ba-col\s*>\s*p,[^{}]*\{[^}]*background:\s*var\(--table-body-bg\)",
+                r"\.poster\.auto-doc\s+\.doc-table\s+td\s+\.video-demo,[^{}]*\{[^}]*height:\s*100%",
+                # Chrome does not resolve a percentage height on a <td> child
+                # unless the host table height is definite; without this the
+                # play card renders at its own content height inside the row.
+                r"\.poster\.auto-doc\s+\.doc-table:has\(\.video-demo\),[^{}]*\{\s*height:\s*1px;\s*\}",
+                r"\.poster\.auto-doc\s+\.doc-table:has\(\.video-demo\)\s+tr\s*>\s*td,[^{}]*\{\s*height:\s*100%;\s*\}",
             )
         ),
         "offline_assets_only": not bool(
